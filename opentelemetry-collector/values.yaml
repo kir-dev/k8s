@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/open-telemetry/opentelemetry-helm-charts/refs/heads/main/charts/opentelemetry-collector/values.schema.json
+
+# default values.yaml with comments:
+# https://github.com/open-telemetry/opentelemetry-helm-charts/blob/main/charts/opentelemetry-collector/values.yaml
+
+mode: deployment
+
+image:
+  # https://github.com/open-telemetry/opentelemetry-collector-releases/tree/main/distributions/otelcol
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+    ephemeral-storage: 200Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+    ephemeral-storage: "0"
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  processors:
+    batch: { }
+
+  # https://opentelemetry.io/docs/collector/components/exporter/
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.monitoring.svc.cluster.local:4317
+      tls:
+        insecure: true
+    otlphttp/loki:
+      endpoint: http://loki.monitoring.svc.cluster.local:3100/otlp
+      tls:
+        insecure: true
+    otlphttp/prometheus:
+      endpoint: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp
+      tls:
+        insecure: true
+
+  service:
+    pipelines:
+      traces:
+        receivers: [ otlp ]
+        processors: [ batch ]
+        exporters: [ otlp/tempo ]
+      metrics:
+        receivers: [ otlp ]
+        processors: [ batch ]
+        exporters: [ otlphttp/prometheus ]
+      logs:
+        receivers: [ otlp ]
+        processors: [ batch ]
+        exporters: [ otlphttp/loki ]

@@ -1,0 +1,10 @@
+# https://artifacthub.io/packages/helm/cloudnative-pg/plugin-barman-cloud
+
+helmCharts:
+  - name: plugin-barman-cloud
+    repo: https://cloudnative-pg.io/charts/
+    version: 0.4.0
+    releaseName: plugin-barman-cloud
+    namespace: cnpg-system
+    includeCRDs: true
+    valuesFile: values.yaml

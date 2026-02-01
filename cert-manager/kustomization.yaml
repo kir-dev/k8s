@@ -1,0 +1,16 @@
+# https://cert-manager.io/docs/installation/helm/
+# https://artifacthub.io/packages/helm/cert-manager/cert-manager
+
+namespace: cert-manager
+
+resources:
+  - namespace.yaml
+  - cluster-issuer.yaml
+
+helmCharts:
+  - name: cert-manager
+    repo: oci://quay.io/jetstack/charts
+    version: v1.19.2
+    releaseName: cert-manager
+    namespace: cert-manager
+    valuesFile: values.yaml

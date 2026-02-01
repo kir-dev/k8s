@@ -1,0 +1,16 @@
+# https://artifacthub.io/packages/helm/opentelemetry-helm/opentelemetry-collector
+# https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-collector
+# https://opentelemetry.io/docs/platforms/kubernetes/helm/collector/
+
+# TODO: Consider enabling pod stdout scraping and other stuff using OTEL Collector
+# https://opentelemetry.io/docs/platforms/kubernetes/helm/collector/#logs-collection-preset
+
+namespace: monitoring
+helmCharts:
+  - name: opentelemetry-collector
+    repo: https://open-telemetry.github.io/opentelemetry-helm-charts
+    version: 0.143.0
+    releaseName: opentelemetry-collector
+    namespace: monitoring
+    includeCRDs: true
+    valuesFile: values.yaml

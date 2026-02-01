@@ -1,0 +1,283 @@
+
+# https://github.com/kir-dev/StartSCH
+#
+# https://start.sch.bme.hu
+
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: startsch
+
+---
+
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  namespace: startsch
+  name: startsch-config
+data:
+  Logging__LogLevel__Microsoft.AspNetCore: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Authentication: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Authorization: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Components: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Hosting: Information
+  Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics: Information
+  Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Server: Information
+  Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware: Information
+  Logging__LogLevel__Microsoft.EntityFrameworkCore: Information
+  Logging__LogLevel__Microsoft.EntityFrameworkCore.Migrations: Information
+  Logging__LogLevel__Microsoft.Hosting: Information
+  Logging__LogLevel__StartSch: Trace
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://opentelemetry-collector.monitoring.svc.cluster.local:4317
+
+---
+
+kind: Secret
+apiVersion: v1
+metadata:
+  namespace: startsch
+  name: startsch-secrets
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  namespace: startsch
+  name: startsch
+spec:
+  selector:
+    app.kubernetes.io/name: startsch
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+
+kind: Secret
+apiVersion: v1
+metadata:
+  namespace: startsch
+  name: startsch-backups-secrets
+
+---
+
+kind: ObjectStore
+apiVersion: barmancloud.cnpg.io/v1
+metadata:
+  name: startsch-backups
+  namespace: startsch
+spec:
+  instanceSidecarConfiguration:
+    resources:
+      limits:
+        cpu: '1'
+        memory: 512Mi
+        ephemeral-storage: 500Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        ephemeral-storage: 100Mi
+  configuration:
+    destinationPath: s3://startsch-backups/
+    endpointURL: https://s3.eu-central-003.backblazeb2.com
+    s3Credentials:
+      accessKeyId:
+        name: startsch-backups-secrets
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: startsch-backups-secrets
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+      maxParallel: 8
+
+---
+
+kind: Cluster
+apiVersion: postgresql.cnpg.io/v1
+metadata:
+  namespace: startsch
+  name: startsch-db
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres-startsch
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: startsch
+  annotations: { }
+spec:
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+  imagePullPolicy: Always
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      wal_level: replica
+      shared_buffers: 128MB
+      # only force wal archiving every 20 minutes if the current segment is not full
+      # (only 2500 requests/day are free in backblaze, the original value of 5 minutes ran out of requests just before the reset)
+      archive_timeout: '1200'
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 500Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 100Mi
+  storage:
+    size: 1.5Gi
+    storageClass: node-local-zfs
+
+  # Enable automatic backups
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true # needed otherwise ArgoCD complains
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: startsch-backups
+
+  # Create a new database
+#  bootstrap:
+#    initdb:
+#      database: startsch
+#      owner: startsch
+
+  # Restore from a backup
+  bootstrap:
+    recovery:
+      source: backblaze-backup
+      database: startsch
+      owner: startsch
+  externalClusters:
+    - name: backblaze-backup
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        enabled: true # needed otherwise ArgoCD complains about being OutOfSync
+        isWALArchiver: false # needed otherwise ArgoCD complains about being OutOfSync
+        parameters:
+          barmanObjectName: startsch-backups
+          serverName: startsch-db
+
+---
+
+kind: ScheduledBackup
+apiVersion: postgresql.cnpg.io/v1
+metadata:
+  name: startsch-backup
+  namespace: startsch
+spec:
+  cluster:
+    name: startsch-db
+  schedule: "0 24 3 * * *"  # At 3:24 every day
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  namespace: startsch
+  name: startsch
+  labels:
+    app.kubernetes.io/name: startsch
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: startsch
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      namespace: startsch
+      name: startsch
+      labels:
+        app.kubernetes.io/name: startsch
+        app.kubernetes.io/component: server
+    spec:
+      containers:
+        - name: startsch
+          # TODO: Update StartSCH docker image hash automatically using Renovate
+          image: ghcr.io/kir-dev/startsch:latest@sha256:e21e87b62e63f036201c5ac238a710ecf0dd0393c7a9b086992071b810d78454
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+              name: http
+          env:
+            - name: DBHOST
+              valueFrom:
+                secretKeyRef:
+                  name: startsch-db-app
+                  key: host
+            - name: DBNAME
+              valueFrom:
+                secretKeyRef:
+                  name: startsch-db-app
+                  key: dbname
+            - name: DBUSER
+              valueFrom:
+                secretKeyRef:
+                  name: startsch-db-app
+                  key: user
+            - name: DBPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: startsch-db-app
+                  key: password
+            - name: ConnectionStrings__Postgres
+              value: "Host=$(DBHOST); Database=$(DBNAME); Username=$(DBUSER); Password=$(DBPASSWORD);"
+          envFrom:
+            - configMapRef:
+                name: startsch-config
+            - secretRef:
+                name: startsch-secrets
+          resources:
+            limits:
+              cpu: 500m
+              memory: 400Mi
+              ephemeral-storage: 200Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 0
+      restartPolicy: Always
+
+---
+
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  namespace: startsch
+  name: startsch
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    acme.cert-manager.io/http01-ingress-class: traefik
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - start.sch.bme.hu
+      secretName: startsch-tls-cert
+  rules:
+    - host: start.sch.bme.hu
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: startsch
+                port:
+                  name: http

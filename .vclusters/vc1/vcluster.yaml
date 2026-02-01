@@ -1,0 +1,93 @@
+sync:
+  fromHost:
+    events:
+      enabled: true
+    csiDrivers:
+      enabled: auto
+    csiNodes:
+      enabled: auto
+    csiStorageCapacities:
+      enabled: auto
+    storageClasses:
+      enabled: true
+    ingressClasses:
+      enabled: false
+    runtimeClasses:
+      enabled: false
+    priorityClasses:
+      enabled: false
+    nodes:
+      enabled: true
+      clearImageStatus: true
+    volumeSnapshotClasses:
+      enabled: false
+  toHost:
+    networkPolicies:
+      enabled: true
+
+controlPlane:
+  coredns:
+    deployment:
+      resources:
+        limits:
+          cpu: 256m
+  distro:
+    k3s:
+      enabled: false
+    k8s:
+      image:
+        tag: v1.35.0
+#   statefulSet: 
+#     persistence: 
+#       volumeClaim: 
+#         storageClass: memory-ssd
+
+policies:
+  podSecurityStandard: baseline
+  
+  resourceQuota:
+    enabled: true
+    quota:
+      requests.cpu: 30
+      limits.cpu: 60
+
+      requests.memory: 60Gi
+      limits.memory: 70Gi
+
+      requests.ephemeral-storage: 40Gi
+      limits.ephemeral-storage: 100Gi
+      requests.storage: 600Gi
+      memory-ssd.storageclass.storage.k8s.io/requests.storage: 100Gi
+      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 100Gi
+      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 0Gi
+      memory-hdd.storageclass.storage.k8s.io/requests.storage: 500Gi
+
+      services.nodeports: 17
+      services.loadbalancers: 16
+
+      count/endpoints: 400
+      count/pods: 100
+      count/services: 400
+      count/secrets: 400
+      count/configmaps: 400
+      count/persistentvolumeclaims: 100
+
+  limitRange:
+    enabled: true
+    default:
+      ephemeral-storage: 1Gi
+      memory: 1Gi
+      cpu: "1"
+    defaultRequest:
+      ephemeral-storage: 40Mi
+      memory: 128Mi
+      cpu: 100m
+    min: { }
+    max: { }
+
+telemetry:
+  enabled: false
+
+integrations:
+  metricsServer:
+    enabled: true

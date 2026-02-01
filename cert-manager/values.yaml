@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/cert-manager/cert-manager/refs/heads/master/deploy/charts/cert-manager/values.schema.json
+
+crds:
+  enabled: true
+
+global:
+  leaderElection:
+    namespace: cert-manager # may or may not be needed
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 0
+  limits:
+    cpu: 300m
+    memory: 256Mi
+    ephemeral-storage: 200Mi
+
+cainjector:
+  resources: 
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 0
+    limits:
+      cpu: 300m
+      memory: 256Mi
+      ephemeral-storage: 200Mi
+    
+webhook:
+  resources: 
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 0
+    limits:
+      cpu: 300m
+      memory: 256Mi
+      ephemeral-storage: 200Mi
+
+startupapicheck:
+  resources: 
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 0
+    limits:
+      cpu: 300m
+      memory: 256Mi
+      ephemeral-storage: 200Mi
+  

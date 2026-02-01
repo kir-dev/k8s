@@ -1,0 +1,15 @@
+#file: noinspection YAMLSchemaValidation
+# For some reason most fields are marked as required in the schema. Ignore the warning
+
+# yaml-language-server: $schema=https://raw.githubusercontent.com/cloudnative-pg/charts/refs/heads/main/charts/plugin-barman-cloud/values.schema.json
+
+# from https://github.com/cloudnative-pg/charts/blob/main/charts/plugin-barman-cloud/values.yaml
+resources:
+  limits:
+    cpu: 100m
+    memory: 200Mi
+    ephemeral-storage: 200Mi
+  requests:
+    cpu: 100m
+    memory: 50Mi
+    ephemeral-storage: 0

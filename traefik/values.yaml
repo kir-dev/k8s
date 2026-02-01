@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/traefik/traefik-helm-chart/refs/heads/master/traefik/values.schema.json
+
+# https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
+
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+
+providers:
+  kubernetesIngress:
+    enabled: true
+  kubernetesGateway:
+    enabled: true
+
+ports:
+  websecure:
+    http3:
+      enabled: true
+      advertisedPort: 443
+
+service:
+  # HTTP3 requires listening on TCP 443 and UDP 443, but because of
+  # https://github.com/kubernetes/kubernetes/issues/105610 we have to use 2 different
+  # LoadBalancer services.
+  # https://github.com/traefik/traefik-helm-chart/blob/master/EXAMPLES.md#use-http3
+  #
+  # Helm 4 will use server-side apply which should also fix this problem.
+  # https://github.com/helm/helm/pull/30812
+  # https://github.com/kubernetes/kubernetes/issues/103544#issuecomment-934598772
+  single: false
+  annotations:
+    # ensure that the 2 LoadBalancers are using the same IP address
+    # https://docs.cilium.io/en/stable/network/lb-ipam/#sharing-keys
+    lbipam.cilium.io/sharing-key: traefik
+    lbipam.cilium.io/ips: "152.66.192.38"
+  ipFamilyPolicy: PreferDualStack
+
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: .05
+    memory: 100Mi
+
+metrics:
+  prometheus:
+    serviceMonitor:
+      enabled: true
+
+extraObjects:
+  - kind: NetworkPolicy
+    apiVersion: networking.k8s.io/v1
+    metadata:
+      namespace: traefik
+      name: traefik
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: traefik-traefik
+          app.kubernetes.io/name: traefik
+      policyTypes:
+        - Ingress
+      ingress:
+        - ports:
+            - protocol: TCP
+              port: web
+            - protocol: TCP
+              port: websecure
+            - protocol: UDP
+              port: websecure-http3

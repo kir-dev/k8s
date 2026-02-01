@@ -1,0 +1,16 @@
+# https://artifacthub.io/packages/helm/traefik/traefik
+# https://github.com/traefik/traefik-helm-chart/tree/master/traefik
+
+namespace: traefik
+resources:
+  - namespace.yaml
+helmCharts:
+  - name: traefik
+    repo: https://traefik.github.io/charts
+    version: 39.0.0
+    releaseName: traefik
+    apiVersions:
+      - monitoring.coreos.com/v1
+    namespace: traefik
+    includeCRDs: true
+    valuesFile: values.yaml

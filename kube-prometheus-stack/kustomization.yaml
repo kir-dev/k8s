@@ -1,0 +1,163 @@
+# https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack
+
+namespace: monitoring
+
+helmCharts:
+  - name: kube-prometheus-stack
+    repo: https://prometheus-community.github.io/helm-charts
+    version: 81.2.0
+    releaseName: kube-prometheus-stack
+    namespace: monitoring
+    includeCRDs: true
+    
+    # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+    valuesInline:
+      nodeExporter:
+        enabled: false
+
+      alertmanager:
+        alertmanagerSpec:
+          resources:
+            requests:
+              memory: 100Mi
+              cpu: 100m
+              ephemeral-storage: 0
+            limits:
+              memory: 300Mi
+              cpu: 200m
+              ephemeral-storage: 200Mi
+
+      prometheusOperator:
+        admissionWebhooks:
+
+          # https://github.com/prometheus-community/helm-charts/issues/4500#issuecomment-2693911587
+          annotations:
+            argocd.argoproj.io/hook: PreSync
+            argocd.argoproj.io/hook-delete-policy: HookSucceeded
+
+          deployment:
+            resources:
+              limits:
+                cpu: 500m
+                memory: 250Mi
+                ephemeral-storage: 400Mi
+              requests:
+                cpu: 500m
+                memory: 250Mi
+                ephemeral-storage: 0
+          patch:
+
+            # https://github.com/prometheus-community/helm-charts/issues/4500#issuecomment-2693911587
+            annotations:
+              argocd.argoproj.io/hook: PreSync
+              argocd.argoproj.io/hook-delete-policy: HookSucceeded
+
+            resources:
+              limits:
+                cpu: 500m
+                memory: 400Mi
+                ephemeral-storage: 400Mi
+              requests:
+                cpu: 500m
+                memory: 400Mi
+                ephemeral-storage: 0
+          
+          # https://github.com/prometheus-community/helm-charts/issues/4500#issuecomment-2693911587
+          mutatingWebhookConfiguration:
+            annotations:
+              argocd.argoproj.io/hook: PreSync
+          validatingWebhookConfiguration:
+            annotations:
+              argocd.argoproj.io/hook: PreSync
+
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+            ephemeral-storage: 200Mi
+          requests:
+            cpu: 100m
+            memory: 50Mi
+            ephemeral-storage: 0
+        prometheusConfigReloader:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 25Mi
+              ephemeral-storage: 0
+            limits:
+              cpu: 200m
+              memory: 50Mi
+              ephemeral-storage: 200Mi
+
+      prometheus:
+        prometheusSpec:
+          enableOTLPReceiver: true
+          resources:
+            requests:
+              memory: 400Mi
+              cpu: 100m
+              ephemeral-storage: 200Mi
+            limits:
+              memory: 800Mi
+              cpu: 200m
+              ephemeral-storage: 500Mi
+
+      thanosRuler:
+        thanosRulerSpec:
+          resources:
+            requests:
+              memory: 100Mi
+              cpu: 100m
+              ephemeral-storage: 0
+            limits:
+              memory: 300Mi
+              cpu: 200m
+              ephemeral-storage: 200Mi
+      # https://github.com/prometheus-community/helm-charts/blob/5524c8e9fa365cd2c12e76fb572fee3e419e55c7/charts/kube-state-metrics/values.yaml#L479
+      kube-state-metrics:
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+            ephemeral-storage: 200Mi
+          requests:
+            cpu: 100m
+            memory: 50Mi
+            ephemeral-storage: 0
+      grafana:
+        # set a default password otherwise helm makes things non-reproducible by generating a random password
+        adminPassword: admin
+        resources:
+          limits:
+            cpu: 300m
+            memory: 512Mi
+            ephemeral-storage: 200Mi
+          requests:
+            cpu: 100m
+            memory: 300Mi
+            ephemeral-storage: 50Mi
+        # https://github.com/grafana/helm-charts/blob/f7410c6487b021ca64a302c97ed82cfa077d0089/charts/grafana/values.yaml#L973
+        sidecar:
+          resources:
+            limits:
+              cpu: 100m
+              memory: 200Mi
+              ephemeral-storage: 200Mi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+              ephemeral-storage: 0
+        additionalDataSources:
+          - name: Loki
+            type: loki
+            uid: loki
+            access: proxy
+            url: http://loki-gateway.monitoring.svc.cluster.local
+            jsonData:
+              maxLines: 1000
+          - name: Tempo
+            type: tempo
+            uid: tempo
+            access: proxy
+            url: http://tempo.monitoring.svc.cluster.local:3200

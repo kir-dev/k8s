@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/cloudnative-pg/charts/refs/heads/main/charts/cloudnative-pg/values.schema.json
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+    ephemeral-storage: 0
+  limits:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 500Mi
