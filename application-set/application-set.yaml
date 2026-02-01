@@ -8,7 +8,7 @@ spec:
   goTemplateOptions: [ "missingkey=error" ]
   generators:
     - git:
-        repoURL: https://github.com/albi005/k8s
+        repoURL: https://github.com/kir-dev/k8s
         revision: HEAD
         directories:
           - path: "*"
@@ -38,7 +38,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/albi005/k8s
+        repoURL: https://github.com/kir-dev/k8s
         path: "{{.path.path}}"
       destination:
         name: in-cluster
