@@ -213,7 +213,7 @@ spec:
     spec:
       containers:
         - name: place
-          image: ghcr.io/kir-dev/blace:latest@sha256:6e3e103197d668307adef812df0accf59fa883868d99182df4535f455498584a
+          image: ghcr.io/kir-dev/blace:latest@sha256:4a5b9301931e4662f4b7ecb1502c10a3c522631111ade2c064a8645475d84937
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
