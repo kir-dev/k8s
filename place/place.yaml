@@ -142,12 +142,12 @@ spec:
     storageClass: node-local-zfs
 
   # Enable automatic backups (disable while restoring)
-#  plugins:
-#    - name: barman-cloud.cloudnative-pg.io
-#      enabled: true # needed otherwise ArgoCD complains
-#      isWALArchiver: true
-#      parameters:
-#        barmanObjectName: place-backups
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true # needed otherwise ArgoCD complains
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: place-backups
 
   # Create a new database
   bootstrap:
