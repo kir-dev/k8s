@@ -1,0 +1,287 @@
+
+# https://github.com/kir-dev/blace
+#
+# https://place.kir-dev.hu
+# https://place.sch.bme.hu
+
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: place
+
+---
+
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  namespace: place
+  name: place-config
+data:
+  Logging__LogLevel__Microsoft.AspNetCore.Authentication: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Authorization: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Components: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics: Information
+  Logging__LogLevel__Microsoft.AspNetCore.Hosting: Information
+  Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides: Warning
+  Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware: Information
+  Logging__LogLevel__Microsoft.AspNetCore.Server: Information
+  Logging__LogLevel__Microsoft.AspNetCore: Warning
+  Logging__LogLevel__Microsoft.EntityFrameworkCore.Migrations: Information
+  Logging__LogLevel__Microsoft.EntityFrameworkCore: Information
+  Logging__LogLevel__Microsoft.Hosting: Information
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://opentelemetry-collector.monitoring.svc.cluster.local:4317
+
+---
+
+kind: Secret
+apiVersion: v1
+metadata:
+  namespace: place
+  name: place-secrets
+# Set manually
+#stringData:
+#  AuthSch__ClientId:
+#  AuthSch__ClientSecret:
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  namespace: place
+  name: place
+spec:
+  selector:
+    app.kubernetes.io/name: place
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+
+kind: Secret
+apiVersion: v1
+metadata:
+  namespace: place
+  name: place-backups-secrets
+
+---
+
+kind: ObjectStore
+apiVersion: barmancloud.cnpg.io/v1
+metadata:
+  name: place-backups
+  namespace: place
+spec:
+  instanceSidecarConfiguration:
+    resources:
+      limits:
+        cpu: '1'
+        memory: 512Mi
+        ephemeral-storage: 500Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        ephemeral-storage: 100Mi
+  configuration:
+    destinationPath: s3://kir-dev-place-backups/
+    endpointURL: https://s3.eu-central-003.backblazeb2.com
+    s3Credentials:
+      accessKeyId:
+        name: place-backups-secrets
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: place-backups-secrets
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+      maxParallel: 8
+
+---
+
+kind: Cluster
+apiVersion: postgresql.cnpg.io/v1
+metadata:
+  namespace: place
+  name: place-db
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres-place
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: place
+  annotations: { }
+spec:
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+  imagePullPolicy: Always
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      wal_level: replica
+      shared_buffers: 128MB
+      # only force wal archiving every 20 minutes if the current segment is not full
+      # (only 2500 requests/day are free in backblaze, the original value of 5 minutes ran out of requests just before the reset)
+      # no idea if this does anything btw, it didn't solve the issue
+      archive_timeout: '1200'
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 500Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 100Mi
+  storage:
+    size: 1.5Gi
+    storageClass: node-local-zfs
+
+  # Enable automatic backups (disable while restoring)
+#  plugins:
+#    - name: barman-cloud.cloudnative-pg.io
+#      enabled: true # needed otherwise ArgoCD complains
+#      isWALArchiver: true
+#      parameters:
+#        barmanObjectName: place-backups
+
+  # Create a new database
+  bootstrap:
+    initdb:
+      database: place
+      owner: place
+
+  # Restore from a backup (leave after restoring finished)
+#  bootstrap:
+#    recovery:
+#      source: backblaze-backup
+#      database: place
+#      owner: place
+#  externalClusters:
+#    - name: backblaze-backup
+#      plugin:
+#        name: barman-cloud.cloudnative-pg.io
+#        enabled: true # needed otherwise ArgoCD complains about being OutOfSync
+#        isWALArchiver: false # needed otherwise ArgoCD complains about being OutOfSync
+#        parameters:
+#          barmanObjectName: place-backups
+#          serverName: place-db
+
+---
+
+kind: ScheduledBackup
+apiVersion: postgresql.cnpg.io/v1
+metadata:
+  name: place-backup
+  namespace: place
+spec:
+  cluster:
+    name: place-db
+  schedule: "0 47 3 * * *"  # At 3:47 every day
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  namespace: place
+  name: place
+  labels:
+    app.kubernetes.io/name: place
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: place
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      namespace: place
+      name: place
+      labels:
+        app.kubernetes.io/name: place
+        app.kubernetes.io/component: server
+    spec:
+      containers:
+        - name: place
+          image: ghcr.io/kir-dev/blace:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+              name: http
+          env:
+            - name: DBHOST
+              valueFrom:
+                secretKeyRef:
+                  name: place-db-app
+                  key: host
+            - name: DBNAME
+              valueFrom:
+                secretKeyRef:
+                  name: place-db-app
+                  key: dbname
+            - name: DBUSER
+              valueFrom:
+                secretKeyRef:
+                  name: place-db-app
+                  key: user
+            - name: DBPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: place-db-app
+                  key: password
+            - name: ConnectionStrings__Postgres
+              value: "Host=$(DBHOST); Database=$(DBNAME); Username=$(DBUSER); Password=$(DBPASSWORD);"
+          envFrom:
+            - configMapRef:
+                name: place-config
+            - secretRef:
+                name: place-secrets
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+              ephemeral-storage: 200Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 0
+      restartPolicy: Always
+
+---
+
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  namespace: place
+  name: place
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    acme.cert-manager.io/http01-ingress-class: traefik
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - place.kir-dev.hu
+      secretName: place-tls-cert
+  rules:
+    - host: place.kir-dev.hu
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: place
+                port:
+                  name: http
