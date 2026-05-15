@@ -19,7 +19,7 @@ data:
   Logging__LogLevel__Microsoft.AspNetCore.Authentication: Warning
   Logging__LogLevel__Microsoft.AspNetCore.Authorization: Warning
   Logging__LogLevel__Microsoft.AspNetCore.Components: Warning
-  Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics: Information
+  Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics: Warning
   Logging__LogLevel__Microsoft.AspNetCore.Hosting: Information
   Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides: Warning
   Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware: Information
