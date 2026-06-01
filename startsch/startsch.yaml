@@ -218,7 +218,7 @@ spec:
       containers:
         - name: startsch
           # TODO: Update StartSCH docker image hash automatically using Renovate
-          image: ghcr.io/kir-dev/startsch:latest@sha256:ce9a6cc92469c688f2985fda3c98fc0d633718573a0c28702ac470c3224bf4be
+          image: ghcr.io/kir-dev/startsch:latest@sha256:a5c0d2c925feac1eed8e6d9c430e2fee3b0e34ee2f4cf9b579ba53af29a97a0e
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
