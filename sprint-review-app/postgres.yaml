@@ -1,0 +1,54 @@
+architecture: standalone
+global:
+  security:
+    allowInsecureImages: true # TODO fix https://github.com/bitnami/containers/issues/83267
+  defaultStorageClass: memory-ssd
+  postgresql:
+    auth:
+      database: sprint-review-app
+      username: admin
+      password: f974b8f6b27745ec58dfcf34079c6e8b
+image:
+  repository: bitnamilegacy/postgresql
+volumePermissions:
+  enabled: true # Needed for TLS
+  image:
+    repository: bitnamilegacy/os-shell
+tls:
+  enabled: true
+  certificatesSecret: "k9r-cert-tls"
+  certFilename: "tls.crt"
+  certKeyFilename: "tls.key"
+metrics:
+  enabled: true
+  image:
+    repository: bitnamilegacy/postgres-exporter
+  serviceMonitor:
+    relabelings:
+      - sourceLabels: [ __meta_kubernetes_pod_name ]
+        targetLabel: instance
+        action: replace
+    enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 50Mi
+    limits:
+      cpu: 150m
+      memory: 192Mi
+      ephemeral-storage: 50Mi
+primary:
+  service: # <- Only for services that are exposed publicly
+    annotations:
+      "lbipam.cilium.io/sharing-key": "kir-sharing-key" # Very important for sharing the LoadBalancerIP
+    type: LoadBalancer
+    ports:
+      postgresql: 8086 # Use different port for each instance
+    loadBalancerIP: 152.66.192.36
+#    externalTrafficPolicy: Local
+  networkPolicy:
+    allowExternal: true
+  persistence:
+    size: 2Gi
+  resourcesPreset: "micro"

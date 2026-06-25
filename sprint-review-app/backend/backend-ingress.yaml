@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sprint-review-backend-ingress
+  namespace: kir-prod
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  labels:
+    app: sprint-review-backend
+spec:
+  rules:
+    - host: api.sprint-review.kir-dev.hu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sprint-review-backend
+                port:
+                  number: 80
+  tls: 
+    - hosts:
+        - api.sprint-review.kir-dev.hu
+      secretName: sprint-review-backend-tls
