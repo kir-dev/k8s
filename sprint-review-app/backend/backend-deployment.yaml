@@ -34,11 +34,16 @@ spec:
           env:
             - name: PORT
               value: "3001"
+            - name: DBHOST
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-db-app
+                  key: host
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: sprint-review-backend-secrets
-                  key: DATABASE_URL
+                  name: sprint-review-db-app
+                  key: uri
             - name: AUTHSCH_CLIENT_ID
               valueFrom:
                 secretKeyRef:

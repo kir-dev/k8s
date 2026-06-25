@@ -1,25 +1,25 @@
-apiVersion: networking.k8s.io/v1
 kind: Ingress
+apiVersion: networking.k8s.io/v1
 metadata:
-  name: sprint-review-backend-ingress
-  namespace: kir-prod
+  namespace: sprint-review
+  name: sprint-review
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  labels:
-    app: sprint-review-backend
+    cert-manager.io/cluster-issuer: letsencrypt
+    acme.cert-manager.io/http01-ingress-class: traefik
 spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - sprint-review.kir-dev.hu
+      secretName: sprint-review-tls-cert
   rules:
-    - host: api.sprint-review.kir-dev.hu
+    - host: sprint-review.kir-dev.hu
       http:
         paths:
-          - path: /
+          - path: "/"
             pathType: Prefix
             backend:
               service:
-                name: sprint-review-backend
+                name: sprint-review
                 port:
-                  number: 80
-  tls: 
-    - hosts:
-        - api.sprint-review.kir-dev.hu
-      secretName: sprint-review-backend-tls
+                  name: http
