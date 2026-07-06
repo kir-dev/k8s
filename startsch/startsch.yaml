@@ -31,6 +31,7 @@ data:
   Logging__LogLevel__StartSch: Trace
   OTEL_EXPORTER_OTLP_ENDPOINT: http://opentelemetry-collector.monitoring.svc.cluster.local:4317
   StartSch__PublicUrl: https://start.sch.bme.hu
+  StartSch__EnabledModules__All: "true"
 
 ---
 
