@@ -217,7 +217,7 @@ spec:
     spec:
       containers:
         - name: startsch
-          image: ghcr.io/kir-dev/startsch:0.0.114@sha256:1a6246698bfca840eed7c126105b896367b2e52af055a65a61f32d545220ceb1
+          image: ghcr.io/kir-dev/startsch:0.0.120@sha256:558d27e57319075043c0f57ce03da1fdd080f4efd096b9ba329be631304ad56b
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
