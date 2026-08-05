@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sprint-review-ha5kfu-frontend
+  namespace: sprint-review-ha5kfu
+  labels:
+    app.kubernetes.io/name: sprint-review-frontend
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: sprint-review-ha5kfu
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    acme.cert-manager.io/http01-ingress-class: traefik
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - sprint-review-ha5kfu.kir-dev.hu
+      secretName: sprint-review-ha5kfu-frontend-tls
+  rules:
+    - host: sprint-review-ha5kfu.kir-dev.hu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sprint-review-ha5kfu-frontend
+                port:
+                  name: http

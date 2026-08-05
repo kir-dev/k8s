@@ -1,0 +1,42 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: sprint-review-ha5kfu-db
+  namespace: sprint-review-ha5kfu
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: sprint-review-ha5kfu
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+  imagePullPolicy: IfNotPresent
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      wal_level: replica
+      shared_buffers: 128MB
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 100Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 500Mi
+  storage:
+    size: 1.5Gi
+    storageClass: node-local-zfs
+  bootstrap:
+    initdb:
+      database: sprint-review
+      owner: sprint-review
+
+# Backups intentionally remain disabled until the new instance has its own
+# object store and credentials. Enabling a WAL archiver without a working
+# destination can fill the database volume.

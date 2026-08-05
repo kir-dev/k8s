@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sprint-review-ha5kfu-backend
+  namespace: sprint-review-ha5kfu
+  labels:
+    app.kubernetes.io/name: sprint-review-backend
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: sprint-review-ha5kfu
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sprint-review-backend
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

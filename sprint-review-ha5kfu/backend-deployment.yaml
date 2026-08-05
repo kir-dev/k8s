@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sprint-review-ha5kfu-backend
+  namespace: sprint-review-ha5kfu
+  labels:
+    app.kubernetes.io/name: sprint-review-backend
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: sprint-review-ha5kfu
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sprint-review-backend
+      app.kubernetes.io/instance: sprint-review-ha5kfu
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sprint-review-backend
+        app.kubernetes.io/instance: sprint-review-ha5kfu
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: sprint-review-ha5kfu
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: backend
+          # Replace this valid-but-unpublished placeholder with an immutable
+          # sha-<commit> tag that exists in Harbor before syncing.
+          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-backend:sha-REPLACE_WITH_PUBLISHED_COMMIT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3001"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-ha5kfu-db-app
+                  key: uri
+            - name: AUTHSCH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-ha5kfu-backend-secrets
+                  key: AUTHSCH_CLIENT_ID
+            - name: AUTHSCH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-ha5kfu-backend-secrets
+                  key: AUTHSCH_CLIENT_SECRET
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-ha5kfu-backend-secrets
+                  key: JWT_SECRET
+            - name: FRONTEND_URL
+              value: https://sprint-review-ha5kfu.kir-dev.hu
+            - name: BACKEND_PUBLIC_URL
+              value: https://api.sprint-review-ha5kfu.kir-dev.hu
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /settings/public
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 50Mi
+            limits:
+              cpu: 150m
+              memory: 192Mi
+              ephemeral-storage: 50Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false

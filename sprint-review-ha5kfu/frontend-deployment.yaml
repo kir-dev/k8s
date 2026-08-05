@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sprint-review-ha5kfu-frontend
+  namespace: sprint-review-ha5kfu
+  labels:
+    app.kubernetes.io/name: sprint-review-frontend
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: sprint-review-ha5kfu
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sprint-review-frontend
+      app.kubernetes.io/instance: sprint-review-ha5kfu
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sprint-review-frontend
+        app.kubernetes.io/instance: sprint-review-ha5kfu
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/part-of: sprint-review-ha5kfu
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: frontend
+          # Replace this valid-but-unpublished placeholder with an immutable
+          # sha-<commit> tag that exists in Harbor before syncing.
+          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-frontend:sha-REPLACE_WITH_PUBLISHED_COMMIT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: BACKEND_PUBLIC_URL
+              value: https://api.sprint-review-ha5kfu.kir-dev.hu
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+              ephemeral-storage: 20Mi
+            limits:
+              cpu: 150m
+              memory: 192Mi
+              ephemeral-storage: 50Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: next-cache
+              mountPath: /app/apps/frontend/.next/cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: next-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
