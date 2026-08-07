@@ -21,8 +21,15 @@ spec:
     - host: api.sprint-review-ha5kfu.kir-dev.hu
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          - path: /auth/login
+            pathType: Exact
+            backend:
+              service:
+                name: sprint-review-ha5kfu-backend
+                port:
+                  name: http
+          - path: /auth/callback
+            pathType: Exact
             backend:
               service:
                 name: sprint-review-ha5kfu-backend

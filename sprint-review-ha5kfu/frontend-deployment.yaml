@@ -40,15 +40,16 @@ spec:
         - name: harbor-secret
       containers:
         - name: frontend
-          # Replace this valid-but-unpublished placeholder with an immutable
-          # sha-<commit> tag that exists in Harbor before syncing.
-          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-frontend:sha-REPLACE_WITH_PUBLISHED_COMMIT
+          # The immutable tag is set centrally in kustomization.yaml.
+          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-frontend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000
               protocol: TCP
           env:
+            - name: BACKEND_INTERNAL_URL
+              value: http://sprint-review-ha5kfu-backend:3001
             - name: BACKEND_PUBLIC_URL
               value: https://api.sprint-review-ha5kfu.kir-dev.hu
           startupProbe:

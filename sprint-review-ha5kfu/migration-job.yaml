@@ -1,0 +1,102 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sprint-review-ha5kfu-migrate
+  namespace: sprint-review-ha5kfu
+  labels:
+    app.kubernetes.io/name: sprint-review-backend
+    app.kubernetes.io/instance: sprint-review-ha5kfu
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: sprint-review-ha5kfu
+  annotations:
+    # A Sync hook with a negative wave is intentional. CNPG is provisioned by
+    # this same Application, so a PreSync hook would deadlock on the first sync.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sprint-review-backend
+        app.kubernetes.io/instance: sprint-review-ha5kfu
+        app.kubernetes.io/component: migration
+        app.kubernetes.io/part-of: sprint-review-ha5kfu
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: harbor-secret
+      initContainers:
+        - name: wait-for-database
+          image: ghcr.io/cloudnative-pg/postgresql:17.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - until pg_isready -h sprint-review-ha5kfu-db-rw -p 5432; do sleep 2; done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 5Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+              ephemeral-storage: 20Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+      containers:
+        - name: migrate
+          # Kustomize applies the same immutable tag as the backend Deployment.
+          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-backend
+          imagePullPolicy: IfNotPresent
+          command:
+            - yarn
+          args:
+            - workspace
+            - backend
+            - prisma:migrate:deploy
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-ha5kfu-db-app
+                  key: uri
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 20Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 100Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,45 @@
+# TEMPLATE ONLY: this file is intentionally not referenced by kustomization.yaml.
+# Do not enable it until a dedicated bucket and the credential Secret exist.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: sprint-review-ha5kfu-backups
+  namespace: sprint-review-ha5kfu
+spec:
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        ephemeral-storage: 100Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+        ephemeral-storage: 500Mi
+  configuration:
+    destinationPath: s3://REPLACE_WITH_DEDICATED_BUCKET/
+    endpointURL: https://REPLACE_WITH_S3_ENDPOINT
+    s3Credentials:
+      accessKeyId:
+        name: sprint-review-ha5kfu-backups-secrets
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: sprint-review-ha5kfu-backups-secrets
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+      maxParallel: 8
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: sprint-review-ha5kfu-backup
+  namespace: sprint-review-ha5kfu
+spec:
+  cluster:
+    name: sprint-review-ha5kfu-db
+  schedule: "0 24 3 * * *"
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

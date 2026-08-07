@@ -26,19 +26,27 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: harbor-secret
       containers:
         - name: backend
-          # Replace this valid-but-unpublished placeholder with an immutable
-          # sha-<commit> tag that exists in Harbor before syncing.
-          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-backend:sha-REPLACE_WITH_PUBLISHED_COMMIT
+          # The immutable tag is set centrally in kustomization.yaml.
+          image: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-backend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3001
               protocol: TCP
           env:
+            - name: NODE_ENV
+              value: production
             - name: PORT
               value: "3001"
             - name: DATABASE_URL
@@ -61,24 +69,33 @@ spec:
                 secretKeyRef:
                   name: sprint-review-ha5kfu-backend-secrets
                   key: JWT_SECRET
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sprint-review-ha5kfu-backend-secrets
+                  key: SESSION_SECRET
             - name: FRONTEND_URL
               value: https://sprint-review-ha5kfu.kir-dev.hu
             - name: BACKEND_PUBLIC_URL
               value: https://api.sprint-review-ha5kfu.kir-dev.hu
+            - name: ENABLE_SWAGGER
+              value: "false"
           startupProbe:
-            tcpSocket:
+            httpGet:
+              path: /health/live
               port: http
             periodSeconds: 2
-            failureThreshold: 60
+            failureThreshold: 30
           readinessProbe:
             httpGet:
-              path: /settings/public
+              path: /health/ready
               port: http
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /health/live
               port: http
             periodSeconds: 20
             timeoutSeconds: 3
@@ -97,4 +114,4 @@ spec:
             capabilities:
               drop:
                 - ALL
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true

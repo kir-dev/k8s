@@ -1,10 +1,19 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+images:
+  - name: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-backend
+    digest: sha256:84dc88f751ed373a42ebaa983def729fcd1df06b60fbe68d8678c6b1bab9b92b
+  - name: harbor.sch.bme.hu/org-kir-dev/sprint-review-app-v2-frontend
+    digest: sha256:3ac091c52a8362450c04adff3f2506eb37faa7f733789c900f356c03d1cbd42d
+
 resources:
   - namespace.yaml
   - backend-secret.yaml
   - cnpg.yaml
+  - network-policies.yaml
+  - traefik-policies.yaml
+  - migration-job.yaml
   - backend-deployment.yaml
   - backend-service.yaml
   - backend-ingress.yaml
