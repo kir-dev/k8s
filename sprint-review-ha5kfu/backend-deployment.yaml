@@ -75,9 +75,9 @@ spec:
                   name: sprint-review-ha5kfu-backend-secrets
                   key: SESSION_SECRET
             - name: FRONTEND_URL
-              value: https://sprint-review-ha5kfu.kir-dev.hu
+              value: https://ha5kfu.sprint-review.kir-dev.hu
             - name: BACKEND_PUBLIC_URL
-              value: https://api.sprint-review-ha5kfu.kir-dev.hu
+              value: https://api.ha5kfu.sprint-review.kir-dev.hu
             - name: ENABLE_SWAGGER
               value: "false"
           startupProbe:

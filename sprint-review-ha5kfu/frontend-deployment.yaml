@@ -51,7 +51,7 @@ spec:
             - name: BACKEND_INTERNAL_URL
               value: http://sprint-review-ha5kfu-backend:3001
             - name: BACKEND_PUBLIC_URL
-              value: https://api.sprint-review-ha5kfu.kir-dev.hu
+              value: https://api.ha5kfu.sprint-review.kir-dev.hu
           startupProbe:
             httpGet:
               path: /healthz

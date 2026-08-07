@@ -9,10 +9,10 @@ application and renders the listed resources through Kustomize.
 | Setting | Current value |
 | --- | --- |
 | Namespace / instance label | `sprint-review-ha5kfu` |
-| Frontend host | `sprint-review-ha5kfu.kir-dev.hu` |
-| Backend host | `api.sprint-review-ha5kfu.kir-dev.hu` |
+| Frontend host | `ha5kfu.sprint-review.kir-dev.hu` |
+| Backend host | `api.ha5kfu.sprint-review.kir-dev.hu` |
 | Internal backend URL | `http://sprint-review-ha5kfu-backend` |
-| AuthSCH callback | `https://api.sprint-review-ha5kfu.kir-dev.hu/auth/callback` |
+| AuthSCH callback | `https://api.ha5kfu.sprint-review.kir-dev.hu/auth/callback` |
 | Database cluster | `sprint-review-ha5kfu-db` |
 | Harbor pull Secret | `harbor-secret` |
 | Frontend image | `sha256:3ac091c52a8362450c04adff3f2506eb37faa7f733789c900f356c03d1cbd42d` |

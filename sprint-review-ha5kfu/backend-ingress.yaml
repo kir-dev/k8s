@@ -15,10 +15,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - api.sprint-review-ha5kfu.kir-dev.hu
+        - api.ha5kfu.sprint-review.kir-dev.hu
       secretName: sprint-review-ha5kfu-backend-tls
   rules:
-    - host: api.sprint-review-ha5kfu.kir-dev.hu
+    - host: api.ha5kfu.sprint-review.kir-dev.hu
       http:
         paths:
           - path: /auth/login
