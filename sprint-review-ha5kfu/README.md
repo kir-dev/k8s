@@ -15,8 +15,6 @@ application and renders the listed resources through Kustomize.
 | AuthSCH callback | `https://api.ha5kfu.sprint-review.kir-dev.hu/auth/callback` |
 | Database cluster | `sprint-review-ha5kfu-db` |
 | Harbor pull Secret | `harbor-secret` |
-| Frontend image | `sha256:3ac091c52a8362450c04adff3f2506eb37faa7f733789c900f356c03d1cbd42d` |
-| Backend image | `sha256:84dc88f751ed373a42ebaa983def729fcd1df06b60fbe68d8678c6b1bab9b92b` |
 
 ## ArgoCD ordering and migrations
 
@@ -25,10 +23,8 @@ The sync waves enforce this order:
 
 1. namespace (`-30`);
 2. CNPG cluster (`-20`);
-3. NetworkPolicies (`-15`);
-4. Prisma migration Job (`-10`);
-5. Traefik middleware/transport (`-5`);
-6. application Deployments, Services and Ingresses (`0`).
+3. Prisma migration Job (`-10`);
+4. application Deployments, Services and Ingresses (`0`).
 
 The migration is a blocking ArgoCD `Sync` hook instead of a literal `PreSync`
 hook. This is intentional: on the first deployment, a `PreSync` Job would run
@@ -117,20 +113,19 @@ before relying on the schedule.
 
 ## Network boundaries
 
-The application pods are default-deny for ingress and egress. Explicit policies
-allow only:
+This instance ships no `NetworkPolicy`, matching the other applications in this
+repository (`startsch`, `place`).
 
-- DNS through the cluster's observed `k8s-app=vcluster-kube-dns` pods;
-- Traefik ingress to frontend `3000` and backend `3001`;
-- frontend-to-backend traffic on `3001`;
-- backend and migration traffic to the instance CNPG pods on `5432`;
-- backend HTTPS egress for AuthSCH.
-
-Standard Kubernetes `NetworkPolicy` cannot select an FQDN. The AuthSCH rule is
-therefore the narrowest portable compromise available here: TCP `443` to public
-IPv4/IPv6 ranges, with private, loopback and link-local ranges excluded. If the
-cluster adopts Cilium FQDN policies, replace this rule with an allow-list for the
-actual AuthSCH domains.
+An earlier revision did define a default-deny policy set with explicit allow
+rules. It could not work in this cluster: the vClusters are nested
+(`-x-vc2-x-vc2-x-vc-kirdev`), and with `sync.toHost.networkPolicies` only
+egress rules whose peer is a `podSelector` in the *same* namespace survive the
+translation to the host cluster. Rules pointing outside the namespace are lost,
+so DNS to `kube-system` was denied no matter how the rule was written —
+verified with a selector peer, a peer-less port-only rule, and `ipBlock` peers
+covering both the Service and Pod CIDRs. The same class of failure would have
+hit the AuthSCH egress rule and the Traefik ingress rules. Reintroduce
+policies only once the platform supports cross-namespace peers here.
 
 The backend Ingress publishes only the exact `/auth/login` and `/auth/callback`
 paths. Normal API calls use the frontend's same-origin `/api/*` proxy and the
@@ -141,9 +136,7 @@ cluster-local backend Service.
 1. Create/manage the backend credential and Harbor pull Secrets described above.
 2. Register the exact AuthSCH callback URL.
 3. Point both DNS names at the cluster ingress.
-4. Confirm the observed Traefik and DNS labels after deployment, then exercise
-   the policies with real traffic.
-5. Configure the instance-specific object store before enabling CNPG backups.
+4. Configure the instance-specific object store before enabling CNPG backups.
 
 Both immutable images are already digest-pinned in `kustomization.yaml` and were
 successfully pulled during manifest verification. The backend image is amd64,

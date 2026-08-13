@@ -3,8 +3,6 @@ kind: Service
 metadata:
   name: sprint-review-ha5kfu-frontend
   namespace: sprint-review-ha5kfu
-  annotations:
-    traefik.ingress.kubernetes.io/service.serverstransport: sprint-review-ha5kfu-sprint-review-ha5kfu-frontend@kubernetescrd
   labels:
     app.kubernetes.io/name: sprint-review-frontend
     app.kubernetes.io/instance: sprint-review-ha5kfu

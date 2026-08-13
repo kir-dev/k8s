@@ -11,8 +11,6 @@ resources:
   - namespace.yaml
   - backend-secret.yaml
   - cnpg.yaml
-  - network-policies.yaml
-  - traefik-policies.yaml
   - migration-job.yaml
   - backend-deployment.yaml
   - backend-service.yaml
