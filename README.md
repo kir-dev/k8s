@@ -6,7 +6,7 @@ Install
 [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl),
 [k3d](https://k3d.io), and
 the [vCluster CLI](https://www.vcluster.com/install)
-(`nix-shell -p kubectl k3d vcluster` if you have Nix),
+(or run `nix-shell -p kubectl k3d vcluster` if you have Nix),
 then:
 
 ```bash
