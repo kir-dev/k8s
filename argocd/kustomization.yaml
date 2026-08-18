@@ -21,6 +21,12 @@ helmCharts:
         cm:
           # https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/#kustomizing-helm-charts
           kustomize.buildOptions: "--enable-helm"
+        # https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/#using-a-config-management-plugin-with-an-application
+        # cdk8s manifests are rendered by the sidecar CMP on each sync; give it
+        # headroom over the default 60s and the sidecar's default 90s timeout.
+        params:
+          server.repo.server.timeout.seconds: "300"
+          controller.repo.server.timeout.seconds: "300"
 
       global:
         networkPolicy:
@@ -118,6 +124,29 @@ helmCharts:
             cpu: 10m
             memory: 64Mi
             ephemeral-storage: 100Mi
+        # Sidecar Config Management Plugin that renders cdk8s Applications.
+        # https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/
+        extraContainers:
+          - name: cmp-cdk8s
+            command: ["/var/run/argocd/argocd-cmp-server"]
+            image: ghcr.io/kir-dev/k8s/cdk8s-cmp:latest
+            imagePullPolicy: Always
+            env:
+              - name: ARGOCD_EXEC_TIMEOUT
+                value: "300"
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+            volumeMounts:
+              - mountPath: /var/run/argocd
+                name: var-files
+              - mountPath: /home/argocd/cmp-server/plugins
+                name: plugins
+              - mountPath: /tmp
+                name: cmp-tmp
+        volumes:
+          - name: cmp-tmp
+            emptyDir: {}
       applicationSet:
         resources:
           limits:

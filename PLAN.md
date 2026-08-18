@@ -8,7 +8,8 @@ additionally i want to be able to deploy a cluster locally for testing.
 
 ## plan
 
-- [ ] keep the same top-level setup and add support for cdk8s apps using a `app.ts` file as the entry-point
+- [x] keep the same top-level setup and add support for cdk8s apps using a `app.ts` file as the entry-point
+      (via an ArgoCD Config Management Plugin sidecar in `.cdk8s/cmp/`, wired up in `argocd/kustomization.yaml`)
 - [ ] the current setup uses some Renovate magic to open PRs from other repositories from GitHub Actions.
   see kir-dev/k8s and kir-dev/StartSCH (both already in ~/src).
   create a script that can be run from the CI/CD pipelines of other repositories that opens an update PR for that specific app.

@@ -46,6 +46,38 @@ Create a new directory containing
 ArgoCD checks each directory (except the ones starting with a `.`). If it sees `kustomization.yaml`, it `kubectl apply --kustomize`s it, otherwise it applies
 `.yaml` files using `kubectl apply`.
 
+## cdk8s apps
+
+Apps written in [cdk8s](https://cdk8s.io) are just a directory containing a `cdk8s.yaml` (optional) and an
+`app.ts`/`main.ts` entry point, e.g.:
+
+```
+my-app/
+├── cdk8s.yaml     # optional: which imports this app needs
+└── app.ts          # defines the cdk8s App / Charts
+```
+
+The generated `imports/` and `node_modules/` are **not** committed to git. Instead they are baked into the
+ArgoCD [Config Management Plugin](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/)
+sidecar image (`.cdk8s/cmp/`), which renders manifests in-cluster on every sync. Nothing generated is committed —
+`cdk8s import` (the slow, bloat-producing step) runs only at image build time.
+
+### Adding a cdk8s app
+
+1. Create a top-level directory with an `app.ts` that imports from `./imports/...`.
+2. If it uses imports not already covered by the root `cdk8s.yaml` (the union baked into the image), add them
+   there, then rebuild the plugin image (or run `cdk8s import` locally to check the types exist).
+
+The ArgoCD `ApplicationSet` scans top-level directories, so a cdk8s directory is picked up automatically —
+discovery matches directories containing `app.ts`/`main.ts`.
+
+### Rebuilding the plugin image
+
+`cdk8s import` regenerates `imports/` from `cdk8s.yaml`; bumping a version there means the image must be rebuilt
+so the baked types match. This happens automatically via
+[`.github/workflows/cdk8s-cmp.yml`](.github/workflows/cdk8s-cmp.yml) on pushes touching `cdk8s.yaml` — e.g. after a
+Renovate bump PR merges.
+
 ## Documentation
 
 - https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/
