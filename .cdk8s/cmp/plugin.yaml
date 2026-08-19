@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  name: cdk8s
+spec:
+  # Link the generated imports/ and node_modules baked into the sidecar image
+  # into the Application source directory so relative imports like
+  # `import { KubeDeployment } from './imports/k8s'` resolve offline.
+  init:
+    command: [sh, -c]
+    args:
+      - |
+        ln -sfn /opt/cdk8s/imports ./imports
+        ln -sfn /opt/cdk8s/node_modules ./node_modules
+  # Runs in the Application source dir. stdout must be ONLY k8s manifests
+  # (YAML/JSON); logs go to stderr.
+  generate:
+    command: [/opt/cdk8s/generate.sh]
+  # Match any Application whose source dir contains an app.ts or main.ts entry.
+  discover:
+    find:
+      command: [sh, -c, 'find . -maxdepth 1 \( -name app.ts -o -name main.ts \) | grep -q .']

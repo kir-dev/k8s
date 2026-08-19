@@ -1,0 +1,11 @@
+{
+  "name": "cdk8s-cmp",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cdk8s": "^2.70.93",
+    "cdk8s-cli": "^2.207.53",
+    "cdk8s-plus-33": "^2.5.49",
+    "constructs": "^10.8.1"
+  }
+}
