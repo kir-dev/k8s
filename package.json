@@ -1,0 +1,16 @@
+{
+  "private": true,
+  "scripts": {
+    "import": "bun scripts/import.ts",
+    "postinstall": "npm run import",
+    "synth": "cdk8s synth"
+  },
+  "dependencies": {
+    "cdk8s": "^2.70.93",
+    "cdk8s-plus-33": "^2.5.49",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "cdk8s-cli": "^2.207.53"
+  }
+}

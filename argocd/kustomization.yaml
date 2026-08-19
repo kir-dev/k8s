@@ -22,6 +22,40 @@ helmCharts:
           # https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/#kustomizing-helm-charts
           kustomize.buildOptions: "--enable-helm"
 
+        # Sidecar Config Management Plugin for cdk8s apps.
+        # Top-level directories containing an `app.ts` are synthesized with cdk8s.
+        # The shared `cdk8s.yaml` + `package.json` live at the repo root, so the
+        # generate step cd's to the root, installs deps, (re)generates `imports/`,
+        # then synthesizes only this app's `app.ts` into a per-app output dir.
+        # https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/
+        cmp:
+          create: true
+          plugins:
+            cdk8s:
+              discover:
+                fileName: "app.ts"
+              generate:
+                command: [bash, -c]
+                args:
+                  - |
+                    set -e
+                    app_dir="$(pwd)"
+                    root_dir="$(cd .. && pwd)"
+                    out_dir="$root_dir/dist/$(basename "$app_dir")"
+                    cd "$root_dir"
+                    # copyfile backend -> real node_modules (no symlinks into bun's
+                    # global cache, which breaks module resolution from nested dirs)
+                    if [ -f bun.lock ]; then bun install --frozen-lockfile --backend=copyfile >&2; else bun install --backend=copyfile >&2; fi
+                    bun run import >&2
+                    # materialize the imports symlink (import script caches via symlink)
+                    if [ -L imports ]; then
+                      target="$(readlink imports)"
+                      rm imports
+                      cp -rL "$target" imports
+                    fi
+                    ./node_modules/.bin/cdk8s synth --app "bun $app_dir/app.ts" --output "$out_dir" >&2
+                    cat "$out_dir"/*.k8s.yaml
+
       global:
         networkPolicy:
           create: true
@@ -109,6 +143,42 @@ helmCharts:
               cpu: 50m
               memory: 32Mi
               ephemeral-storage: 50Mi
+
+        # Sidecar running the `cdk8s` CMP. Needs `bun` (run/synth cdk8s apps),
+        # `nodejs` (cdk8s-cli bin is a node script), `helm` (cdk8s import pulls
+        # helm charts), plus a shell + coreutils and ca-certificates.
+        # Provided by nixery: https://nixery.dev/
+        extraContainers:
+          - name: cmp-cdk8s
+            command: ["/var/run/argocd/argocd-cmp-server"]
+            image: nixery.dev/bun/kubernetes-helm/bash/coreutils/cacert/nodejs
+            imagePullPolicy: IfNotPresent
+            env:
+              # bun needs a writable HOME for its install cache; /tmp is the cmp-tmp emptyDir.
+              - name: HOME
+                value: /tmp
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+            volumeMounts:
+              - mountPath: /var/run/argocd
+                name: var-files
+              - mountPath: /home/argocd/cmp-server/plugins
+                name: plugins
+              - mountPath: /home/argocd/cmp-server/config/plugin.yaml
+                subPath: cdk8s.yaml
+                name: argocd-cmp-cm
+              # Do not share the repo-server's /tmp volume (path traversal mitigation).
+              - mountPath: /tmp
+                name: cmp-tmp
+
+        volumes:
+          - name: argocd-cmp-cm
+            configMap:
+              name: argocd-cmp-cm
+          - name: cmp-tmp
+            emptyDir: {}
+
         resources:
           limits:
             cpu: 700m
