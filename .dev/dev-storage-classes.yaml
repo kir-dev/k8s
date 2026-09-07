@@ -1,0 +1,21 @@
+# Apply these when running the cluster in a dev environment
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: node-local-zfs
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: memory-hdd
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: memory-ssd
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer

@@ -1,0 +1,26 @@
+language: typescript
+
+# https://cdk8s.io/docs/latest/cli/import/#import-types
+imports:
+  - k8s@1.36.0 # version from https://github.com/cdk8s-team/cdk8s/tree/master/kubernetes-schemas
+
+  - helm:oci://ghcr.io/argoproj/argo-helm/argo-cd@9.3.4
+  - helm:oci://quay.io/jetstack/charts/cert-manager@v1.19.2
+  - helm:https://cloudnative-pg.github.io/charts/cloudnative-pg@0.27.0
+  - helm:https://cloudnative-pg.io/charts/plugin-barman-cloud@0.4.0
+  - helm:https://prometheus-community.github.io/helm-charts/kube-prometheus-stack@81.2.0
+  - helm:https://grafana.github.io/helm-charts/loki@6.49.0
+  - helm:https://grafana.github.io/helm-charts/tempo@1.24.3
+  - helm:https://traefik.github.io/charts/traefik@39.0.0
+  - helm:https://open-telemetry.github.io/opentelemetry-helm-charts/opentelemetry-collector@0.143.0
+
+  # NOTE: You can only have one .yaml CRD file per API group (like networking.k8s.io),
+  # as they don't get merged, instead the new one replaces the old one.
+  # https://github.com/cdk8s-team/cdk8s-cli/issues/3797
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.2.5/manifests/install.yaml
+  - https://github.com/cert-manager/cert-manager/releases/download/v1.19.2/cert-manager.crds.yaml
+  - https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml
+  - https://raw.githubusercontent.com/cloudnative-pg/plugin-barman-cloud/v0.10.0/config/crd/bases/barmancloud.cnpg.io_objectstores.yaml
+  - https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.88.0/bundle.yaml
+  - https://raw.githubusercontent.com/traefik/traefik/v3.6.7/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+  

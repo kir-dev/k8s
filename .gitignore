@@ -1,2 +1,7 @@
 .idea
 **/charts
+.junie
+
+imports
+dist/
+node_modules
