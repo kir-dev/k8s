@@ -1,0 +1,118 @@
+kind: ObjectStore
+apiVersion: barmancloud.cnpg.io/v1
+metadata:
+  name: sprint-review-backups
+  namespace: sprint-review
+spec:
+  instanceSidecarConfiguration:
+    resources:
+      limits:
+        cpu: '1'
+        memory: 512Mi
+        ephemeral-storage: 500Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        ephemeral-storage: 100Mi
+  configuration:
+    destinationPath: s3://sprint-review-backups/
+    endpointURL: https://s3.eu-central-003.backblazeb2.com
+    s3Credentials:
+      accessKeyId:
+        name: sprint-review-backups-secrets
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: sprint-review-backups-secrets
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+      maxParallel: 8
+
+---
+
+kind: Cluster
+apiVersion: postgresql.cnpg.io/v1
+metadata:
+  namespace: sprint-review
+  name: sprint-review-db
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres-sprint-review
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: sprint-review
+  annotations: { }
+spec:
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.5
+  imagePullPolicy: Always
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      wal_level: replica
+      shared_buffers: 128MB
+      # only force wal archiving every 20 minutes if the current segment is not full
+      # (only 2500 requests/day are free in backblaze, the original value of 5 minutes ran out of requests just before the reset)
+      archive_timeout: '1200'
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 500Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 100Mi
+  storage:
+    size: 1.5Gi
+    storageClass: node-local-zfs
+
+  # Enable automatic backups (disable while restoring)
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true # needed otherwise ArgoCD complains
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: sprint-review-backups
+
+  # Create a new database
+#  bootstrap:
+#    initdb:
+#      database: sprint-review
+#      owner: sprint-review
+
+  # Restore from a backup (leave after restoring finished)
+  bootstrap:
+    recovery:
+      source: backblaze-backup
+      database: sprint-review
+      owner: sprint-review
+  externalClusters:
+    - name: backblaze-backup
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        enabled: true # needed otherwise ArgoCD complains about being OutOfSync
+        isWALArchiver: false # needed otherwise ArgoCD complains about being OutOfSync
+        parameters:
+          barmanObjectName: sprint-review-backups
+          serverName: sprint-review-db
+
+---
+
+kind: ScheduledBackup
+apiVersion: postgresql.cnpg.io/v1
+metadata:
+  name: sprint-review-backup
+  namespace: sprint-review
+spec:
+  cluster:
+    name: sprint-review-db
+  schedule: "0 24 3 * * *"  # At 3:24 every day
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+
+---
