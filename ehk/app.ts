@@ -100,82 +100,10 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         },
     });
 
-    // Apply Payload migrations before the new image starts serving traffic.
-    // A Sync hook (not PreSync) is required because CNPG lives in this same
-    // Application and is only created in the previous sync wave.
-    new kube.KubeJob(scope, "ehk-migrate", {
-        metadata: {
-            name: "ehk-migrate",
-            labels,
-            annotations: {
-                "argocd.argoproj.io/hook": "Sync",
-                "argocd.argoproj.io/hook-delete-policy": "BeforeHookCreation,HookSucceeded",
-                "argocd.argoproj.io/sync-wave": "-10",
-            },
-        },
-        spec: {
-            backoffLimit: 1,
-            activeDeadlineSeconds: 600,
-            template: {
-                metadata: { labels },
-                spec: {
-                    restartPolicy: "Never",
-                    automountServiceAccountToken: false,
-                    initContainers: [
-                        {
-                            name: "wait-for-database",
-                            image: "ghcr.io/cloudnative-pg/postgresql:17.5",
-                            imagePullPolicy: "IfNotPresent",
-                            command: ["/bin/sh", "-ec"],
-                            args: ["until pg_isready -h ehk-db-rw -p 5432 -U postgres; do sleep 2; done"],
-                            resources: {
-                                requests: {
-                                    cpu: kube.Quantity.fromString("10m"),
-                                    memory: kube.Quantity.fromString("16Mi"),
-                                    "ephemeral-storage": kube.Quantity.fromString("5Mi"),
-                                },
-                                limits: {
-                                    cpu: kube.Quantity.fromString("50m"),
-                                    memory: kube.Quantity.fromString("32Mi"),
-                                    "ephemeral-storage": kube.Quantity.fromString("20Mi"),
-                                },
-                            },
-                        },
-                    ],
-                    containers: [
-                        {
-                            name: "migrate",
-                            image: versions.image,
-                            imagePullPolicy: "IfNotPresent",
-                            command: ["yarn", "migrate"],
-                            env: [
-                                {
-                                    name: "DATABASE_URI",
-                                    valueFrom: { secretKeyRef: { name: "ehk-db-app", key: "uri" } },
-                                },
-                                {
-                                    name: "PAYLOAD_SECRET",
-                                    valueFrom: { secretKeyRef: { name: "ehk-secrets", key: "PAYLOAD_SECRET" } },
-                                },
-                            ],
-                            resources: {
-                                requests: {
-                                    cpu: kube.Quantity.fromString("50m"),
-                                    memory: kube.Quantity.fromString("128Mi"),
-                                    "ephemeral-storage": kube.Quantity.fromString("20Mi"),
-                                },
-                                limits: {
-                                    cpu: kube.Quantity.fromString("250m"),
-                                    memory: kube.Quantity.fromString("512Mi"),
-                                    "ephemeral-storage": kube.Quantity.fromString("100Mi"),
-                                },
-                            },
-                        },
-                    ],
-                },
-            },
-        },
-    });
+    // Migrations are applied at runtime by Payload (`prodMigrations`) during
+    // Payload's first initialization, so no separate migration Job is needed.
+    // The startup probe below deliberately hits a Payload route so the pod only
+    // becomes Ready after that initialization (and thus the migrations) finishes.
 
     // Self-hosted S3-compatible object storage for the `media` collection,
     // managed by the seaweedfs-operator (see the `seaweedfs-operator` app).
@@ -347,13 +275,17 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                                 },
                             ],
                             envFrom: [{ configMapRef: { name: "ehk-config" } }],
+                            // Hit a Payload route so Payload's initialization
+                            // (including `prodMigrations`) completes before the
+                            // pod reports Ready.
                             startupProbe: {
-                                tcpSocket: { port: kube.IntOrString.fromString("http") },
+                                httpGet: { path: "/admin", port: kube.IntOrString.fromString("http") },
                                 periodSeconds: 5,
+                                timeoutSeconds: 3,
                                 failureThreshold: 60,
                             },
                             readinessProbe: {
-                                tcpSocket: { port: kube.IntOrString.fromString("http") },
+                                httpGet: { path: "/admin", port: kube.IntOrString.fromString("http") },
                                 periodSeconds: 10,
                                 timeoutSeconds: 3,
                                 failureThreshold: 3,
