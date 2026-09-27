@@ -1,0 +1,14 @@
+# https://rajsinghtech.github.io/garage-operator/
+# https://github.com/rajsinghtech/garage-operator
+
+namespace: garage-operator
+resources:
+  - namespace.yaml
+helmCharts:
+  - name: garage-operator
+    repo: oci://ghcr.io/rajsinghtech/charts
+    version: 0.7.12
+    releaseName: garage-operator
+    namespace: garage-operator
+    includeCRDs: true
+    valuesFile: values.yaml

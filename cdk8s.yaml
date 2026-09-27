@@ -13,7 +13,7 @@ imports:
   - helm:https://grafana.github.io/helm-charts/tempo@1.24.3
   - helm:https://traefik.github.io/charts/traefik@39.0.0
   - helm:https://open-telemetry.github.io/opentelemetry-helm-charts/opentelemetry-collector@0.143.0
-  - helm:https://seaweedfs.github.io/seaweedfs-operator/seaweedfs-operator@0.1.42
+  - helm:oci://ghcr.io/rajsinghtech/charts/garage-operator@0.7.12
 
   # cdk8s-cli normally only allows one CRD file per API group, so multiple
   # files in a group overwrite each other. `.dev/cdk8s-import.ts` patches the
@@ -27,18 +27,10 @@ imports:
   - https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.88.0/bundle.yaml
   - https://raw.githubusercontent.com/traefik/traefik/v3.6.7/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
 
-  # SeaweedFS
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_adminscripts.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_bucketlifecyclepolicies.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_buckets.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_resourcereferencegrants.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_s3credentials.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_s3identities.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_s3oidcproviders.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_s3policies.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_s3policybindings.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_seaweedbackups.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_seaweedcsidrivers.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_seaweedrestores.yaml
-  - https://raw.githubusercontent.com/seaweedfs/seaweedfs-operator/1.0.39/config/crd/bases/seaweed.seaweedfs.com_seaweeds.yaml
-
+  # Garage
+  - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garageadmintokens.yaml
+  - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagebuckets.yaml
+  - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garageclusters.yaml
+  - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagekeys.yaml
+  - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagenodes.yaml
+  - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagereferencegrants.yaml

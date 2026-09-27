@@ -7,7 +7,7 @@
 import * as kube from "../imports/k8s";
 import * as environment from "../.dev/environment.ts";
 import * as cnpg from "../imports/postgresql.cnpg.io.ts";
-import * as seaweed from "../imports/seaweed.seaweedfs.com.ts";
+import * as garage from "../imports/garage.rajsingh.info.ts";
 import { versions } from "./versions.ts";
 import { singletonApp } from "../.dev/cdk8s-utils.ts";
 
@@ -29,14 +29,14 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             NEXT_TELEMETRY_DISABLED: "1",
             S3_BUCKET: "ehk-media",
             S3_REGION: "us-east-1",
-            S3_ENDPOINT: "http://ehk-seaweed-filer:8333",
+            S3_ENDPOINT: "http://ehk-garage:3900",
         },
     });
 
     // Set manually in production:
     //   PAYLOAD_SECRET:
-    // S3 credentials are managed by the seaweedfs-operator in the
-    // `ehk-seaweed-s3` secret (see the Seaweed cluster below).
+    // S3 credentials are managed by the garage-operator in the
+    // `ehk-garage-s3` secret (see the Garage cluster below).
     new kube.KubeSecret(scope, "ehk-secrets", {
         metadata: {
             name: "ehk-secrets",
@@ -106,140 +106,103 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // becomes Ready after that initialization (and thus the migrations) finishes.
 
     // Self-hosted S3-compatible object storage for the `media` collection,
-    // managed by the seaweedfs-operator (see the `seaweedfs-operator` app).
-    // S3 and IAM share the filer service on port 8333.
+    // managed by the garage-operator (see the `garage-operator` app).
     //
-    // The image is kept here (not in versions.ts, which Renovate owns) because
-    // it must track the operator's supported SeaweedFS version. This matches
-    // the dependency pinned by seaweedfs-operator 1.0.39.
-    const seaweedfsImage = "chrislusf/seaweedfs:4.47";
-    const seaweedLabels = { "app.kubernetes.io/name": "ehk-seaweed", "app.kubernetes.io/part-of": "ehk" };
+    // Garage is designed for multi-node clusters, but supports a single node
+    // with a replication factor of 1.
+    const garageLabels = { "app.kubernetes.io/name": "ehk-garage", "app.kubernetes.io/part-of": "ehk" };
     const storageClassName = "node-local-zfs";
 
-    new seaweed.Seaweed(scope, "ehk-seaweed", {
-        metadata: { name: "ehk-seaweed", labels: seaweedLabels },
+    // Static admin bootstrap token. The operator uses it to drive Garage's
+    // Admin API; GarageAdminToken writes it into the `ehk-garage-admin` secret
+    // (key `admin-token`), which the GarageCluster below selects. The sync-wave
+    // makes ArgoCD create the secret before the cluster that consumes it.
+    new garage.GarageAdminTokenV1Beta1(scope, "ehk-garage-admin", {
+        metadata: {
+            name: "ehk-garage-admin",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-30" },
+        },
         spec: {
-            image: seaweedfsImage,
-            imagePullPolicy: "IfNotPresent",
-            volumeServerDiskCount: 1,
-            master: {
+            clusterRef: { name: "ehk-garage" },
+            secretTemplate: { name: "ehk-garage-admin", tokenKey: "admin-token" },
+        },
+    });
+
+    new garage.GarageClusterV1Beta2(scope, "ehk-garage", {
+        metadata: {
+            name: "ehk-garage",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-20" },
+        },
+        spec: {
+            zone: "default",
+            replication: { factor: 1 },
+            storage: {
                 replicas: 1,
-
-                // The volume server computes its max volume count from free disk
-                // space divided by this limit. With the 30GB default and the
-                // node's ~75GB free, only ~2 volumes fit, so new collections
-                // (e.g. `ehk-media`) get no writable volume and S3 writes 500.
-                // 1GB keeps plenty of headroom on the node's disk.
-                // -- AI slop, idk if needed
-                volumeSizeLimitMb: 1024,
-                volumePreallocate: false,
-
-                persistence: {
-                    enabled: true,
+                metadata: {
+                    size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                     storageClassName,
-                    resources: {
-                        requests: {
-                            storage: seaweed.SeaweedSpecMasterPersistenceResourcesRequests.fromString("1Gi"),
-                        },
+                },
+                data: {
+                    size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
+                    storageClassName,
+                },
+                // A single-node cluster cannot tolerate any disruption anyway,
+                // and a PDB would block draining the node.
+                podDisruptionBudget: { enabled: false },
+                resources: {
+                    requests: {
+                        cpu: garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("50m"),
+                        memory: garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("128Mi"),
+                        "ephemeral-storage": garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("0"),
+                    },
+                    limits: {
+                        cpu: garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("500m"),
+                        memory: garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("512Mi"),
+                        "ephemeral-storage": garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("500Mi"),
                     },
                 },
-                requests: {
-                    cpu: seaweed.SeaweedSpecMasterRequests.fromString("50m"),
-                    memory: seaweed.SeaweedSpecMasterRequests.fromString("128Mi"),
-                    "ephemeral-storage": seaweed.SeaweedSpecMasterRequests.fromString("0"),
-                },
-                limits: {
-                    cpu: seaweed.SeaweedSpecMasterLimits.fromString("500m"),
-                    memory: seaweed.SeaweedSpecMasterLimits.fromString("512Mi"),
-                    "ephemeral-storage": seaweed.SeaweedSpecMasterLimits.fromString("200Mi"),
-                },
             },
-            volume: {
-                replicas: 1,
-                storageClassName,
-                requests: {
-                    storage: seaweed.SeaweedSpecVolumeRequests.fromString("2Gi"),
-                    cpu: seaweed.SeaweedSpecVolumeRequests.fromString("50m"),
-                    memory: seaweed.SeaweedSpecVolumeRequests.fromString("128Mi"),
-                    "ephemeral-storage": seaweed.SeaweedSpecVolumeRequests.fromString("0"),
-                },
-                limits: {
-                    cpu: seaweed.SeaweedSpecVolumeLimits.fromString("500m"),
-                    memory: seaweed.SeaweedSpecVolumeLimits.fromString("512Mi"),
-                    "ephemeral-storage": seaweed.SeaweedSpecVolumeLimits.fromString("500Mi"),
-                },
+            network: {
+                rpcBindPort: 3901,
+                service: { type: garage.GarageClusterV1Beta2SpecNetworkServiceType.CLUSTER_IP },
             },
-            filer: {
-                replicas: 1,
-                iam: true,
-                s3: { enabled: true },
-                // IAM objects created through the API (and the CRDs below) need
-                // write access; without this the operator cannot register them.
-                extraArgs: ["-s3.iam.readOnly=false"],
-                persistence: {
-                    enabled: true,
-                    storageClassName,
-                    resources: {
-                        requests: {
-                            storage: seaweed.SeaweedSpecFilerPersistenceResourcesRequests.fromString("1Gi"),
-                        },
-                    },
-                },
-                requests: {
-                    cpu: seaweed.SeaweedSpecFilerRequests.fromString("50m"),
-                    memory: seaweed.SeaweedSpecFilerRequests.fromString("128Mi"),
-                    "ephemeral-storage": seaweed.SeaweedSpecFilerRequests.fromString("0"),
-                },
-                limits: {
-                    cpu: seaweed.SeaweedSpecFilerLimits.fromString("500m"),
-                    memory: seaweed.SeaweedSpecFilerLimits.fromString("512Mi"),
-                    "ephemeral-storage": seaweed.SeaweedSpecFilerLimits.fromString("200Mi"),
-                },
+            s3Api: { bindPort: 3900, region: "us-east-1" },
+            admin: {
+                bindPort: 3903,
+                adminTokenSecretRef: { name: "ehk-garage-admin", key: "admin-token" },
             },
         },
     });
 
-    // S3 identity and credentials. The operator generates the key pair into the
-    // `ehk-seaweed-s3` secret (keys `accessKey`/`secretKey`), which the app mounts.
-    new seaweed.S3Identity(scope, "ehk-seaweed-identity", {
-        metadata: { name: "ehk", labels: seaweedLabels },
-        spec: { seaweedRef: { name: "ehk-seaweed" } },
-    });
-
-    new seaweed.S3Credentials(scope, "ehk-seaweed-credentials", {
-        metadata: { name: "ehk-seaweed-credentials", labels: seaweedLabels },
-        spec: {
-            seaweedRef: { name: "ehk-seaweed" },
-            identityRef: { name: "ehk" },
-            secretRef: { name: "ehk-seaweed-s3" },
+    new garage.GarageBucketV1Beta1(scope, "ehk-media", {
+        metadata: {
+            name: "ehk-media",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-15" },
         },
+        spec: { clusterRef: { name: "ehk-garage" }, globalAlias: "ehk-media" },
     });
 
-    new seaweed.Bucket(scope, "ehk-media-bucket", {
-        metadata: { name: "ehk-media", labels: seaweedLabels },
-        spec: { clusterRef: { name: "ehk-seaweed" } },
-    });
-
-    new seaweed.S3Policy(scope, "ehk-media-policy", {
-        metadata: { name: "ehk-media", labels: seaweedLabels },
-        spec: {
-            seaweedRef: { name: "ehk-seaweed" },
-            statements: [
-                {
-                    effect: seaweed.S3PolicySpecStatementsEffect.ALLOW,
-                    actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-                    resources: ["ehk-media", "ehk-media/*"],
-                },
-            ],
+    // S3 credentials. The operator generates the key pair into the
+    // `ehk-garage-s3` secret (keys `access-key-id`/`secret-access-key`), which
+    // the app mounts, and grants it read/write on the `ehk-media` bucket.
+    new garage.GarageKeyV1Beta1(scope, "ehk-media-key", {
+        metadata: {
+            name: "ehk-media",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-10" },
         },
-    });
-
-    new seaweed.S3PolicyBinding(scope, "ehk-media-policy-binding", {
-        metadata: { name: "ehk-media", labels: seaweedLabels },
         spec: {
-            seaweedRef: { name: "ehk-seaweed" },
-            policyRef: { name: "ehk-media" },
-            subjects: [{ kind: seaweed.S3PolicyBindingSpecSubjectsKind.S3_IDENTITY, name: "ehk" }],
+            clusterRef: { name: "ehk-garage" },
+            name: "ehk-media",
+            secretTemplate: {
+                name: "ehk-garage-s3",
+                accessKeyIdKey: "access-key-id",
+                secretAccessKeyKey: "secret-access-key",
+            },
+            bucketPermissions: [{ bucketRef: { name: "ehk-media" }, read: true, write: true }],
         },
     });
 
@@ -277,11 +240,11 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                                 },
                                 {
                                     name: "S3_ACCESS_KEY_ID",
-                                    valueFrom: { secretKeyRef: { name: "ehk-seaweed-s3", key: "accessKey" } },
+                                    valueFrom: { secretKeyRef: { name: "ehk-garage-s3", key: "access-key-id" } },
                                 },
                                 {
                                     name: "S3_SECRET_ACCESS_KEY",
-                                    valueFrom: { secretKeyRef: { name: "ehk-seaweed-s3", key: "secretKey" } },
+                                    valueFrom: { secretKeyRef: { name: "ehk-garage-s3", key: "secret-access-key" } },
                                 },
                             ],
                             envFrom: [{ configMapRef: { name: "ehk-config" } }],
