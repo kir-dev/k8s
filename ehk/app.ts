@@ -124,6 +124,16 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             volumeServerDiskCount: 1,
             master: {
                 replicas: 1,
+
+                // The volume server computes its max volume count from free disk
+                // space divided by this limit. With the 30GB default and the
+                // node's ~75GB free, only ~2 volumes fit, so new collections
+                // (e.g. `ehk-media`) get no writable volume and S3 writes 500.
+                // 1GB keeps plenty of headroom on the node's disk.
+                // -- AI slop, idk if needed
+                volumeSizeLimitMb: 1024,
+                volumePreallocate: false,
+
                 persistence: {
                     enabled: true,
                     storageClassName,
