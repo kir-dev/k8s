@@ -197,12 +197,25 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         spec: {
             clusterRef: { name: "ehk-garage" },
             name: "ehk-media",
+            // These are the operator's defaults. Declaring them explicitly keeps
+            // ArgoCD from reporting the resource as OutOfSync forever, since the
+            // webhook writes them back into the spec.
+            neverExpires: false,
             secretTemplate: {
                 name: "ehk-garage-s3",
+                type: "Opaque",
                 accessKeyIdKey: "access-key-id",
                 secretAccessKeyKey: "secret-access-key",
+                endpointKey: "endpoint",
+                hostKey: "host",
+                schemeKey: "scheme",
+                regionKey: "region",
+                bucketNameKey: "bucket",
+                websiteUrlKey: "website-url",
+                credentialsFileKey: "credentials",
+                credentialsFileProfile: "default",
             },
-            bucketPermissions: [{ bucketRef: { name: "ehk-media" }, read: true, write: true }],
+            bucketPermissions: [{ bucketRef: { name: "ehk-media" }, read: true, write: true, owner: false }],
         },
     });
 
