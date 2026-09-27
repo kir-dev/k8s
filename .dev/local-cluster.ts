@@ -163,7 +163,9 @@ async function sync(): Promise<void> {
 
     await publishHead();
 
-    await $`kubectl -n argocd annotate applicationset/application-set argocd.argoproj.io/application-set-refresh=true --overwrite`;
+    // Refresh Argo CD
+    await check($`kubectl -n argocd annotate applicationset/application-set argocd.argoproj.io/application-set-refresh=true --overwrite`);
+    await check($`kubectl -n argocd annotate applications --all argocd.argoproj.io/refresh=normal --overwrite`);
 }
 
 async function down(): Promise<void> {

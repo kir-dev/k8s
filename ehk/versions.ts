@@ -1,3 +1,3 @@
 export const versions = {
-    image: "ghcr.io/kir-dev/ehk:local",
+    image: "ghcr.io/kir-dev/ehk",
 };
