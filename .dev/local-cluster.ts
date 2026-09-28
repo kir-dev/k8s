@@ -6,7 +6,7 @@ import { kubectlApplyCdk8sApp } from "./kubectl-utils.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const K3D_CLUSTER_NAME = "kirdev-local-cluster";
-const K3S_IMAGE = "rancher/k3s:v1.35.0-k3s1";
+const K3S_IMAGE = "rancher/k3s:v1.36.2-k3s1";
 const K3S_ARGS = [
     // Use absolute disk-eviction thresholds instead of k3s's 5%/10% of the whole
     // (shared, 500GB) disk, which evicted pods at ~24/48GB free: only evict below
@@ -43,11 +43,11 @@ async function k3dClusterExists(): Promise<boolean> {
 }
 
 async function vclusterExists(name: string): Promise<boolean> {
-    const r = await $`vcluster list -o json`.quiet().nothrow();
+    const r = await $`vcluster list --output json`.quiet().nothrow();
     if (r.exitCode !== 0) return false;
     try {
-        const vcs = JSON.parse(r.text()) as { name: string }[];
-        return vcs.some((v) => v.name === name);
+        const vcs = JSON.parse(r.text()) as { Name?: string; name?: string }[];
+        return vcs.some((v) => (v.Name ?? v.name) === name);
     } catch {
         return false;
     }
@@ -172,7 +172,9 @@ async function sync(): Promise<void> {
     await publishHead();
 
     // Refresh Argo CD
-    await check($`kubectl -n argocd annotate applicationset/application-set argocd.argoproj.io/application-set-refresh=true --overwrite`);
+    await check(
+        $`kubectl -n argocd annotate applicationset/application-set argocd.argoproj.io/application-set-refresh=true --overwrite`,
+    );
     await check($`kubectl -n argocd annotate applications --all argocd.argoproj.io/refresh=normal --overwrite`);
 }
 
