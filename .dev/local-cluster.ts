@@ -7,6 +7,14 @@ import { kubectlApplyCdk8sApp } from "./kubectl-utils.ts";
 const ROOT = resolve(import.meta.dir, "..");
 const K3D_CLUSTER_NAME = "kirdev-local-cluster";
 const K3S_IMAGE = "rancher/k3s:v1.35.0-k3s1";
+const K3S_ARGS = [
+    // Use absolute disk-eviction thresholds instead of k3s's 5%/10% of the whole
+    // (shared, 500GB) disk, which evicted pods at ~24/48GB free: only evict below
+    // 10Gi free, reclaim just to that line, and drop the taint 30s after recovery.
+    "--kubelet-arg=eviction-hard=nodefs.available<10Gi,imagefs.available<10Gi",
+    "--kubelet-arg=eviction-minimum-reclaim=nodefs.available=0,imagefs.available=0",
+    "--kubelet-arg=eviction-pressure-transition-period=30s",
+].flatMap((arg) => ["--k3s-arg", `${arg}@server:*`]);
 const GIT_SERVER_TARGET_BRANCH = "main";
 const GIT_SERVER_NAMESPACE = "argocd";
 const GIT_SERVER_SERVICE = "git-server";
@@ -134,7 +142,7 @@ async function up(): Promise<void> {
     await check($`bun run cdk8s:import`.cwd(ROOT));
 
     if (!(await k3dClusterExists())) {
-        await check($`k3d cluster create ${K3D_CLUSTER_NAME} --image ${K3S_IMAGE}`);
+        await check($`k3d cluster create ${K3D_CLUSTER_NAME} --image ${K3S_IMAGE} ${K3S_ARGS}`);
     } else {
         console.log(`✓ k3d cluster ${K3D_CLUSTER_NAME} exists`);
     }
