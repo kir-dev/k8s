@@ -32,8 +32,6 @@ controlPlane:
         limits:
           cpu: 256m
   distro:
-    k3s:
-      enabled: false
     k8s:
       image:
         tag: v1.35.0
