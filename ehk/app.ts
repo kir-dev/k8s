@@ -353,10 +353,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     new ApiObject(scope, "ehk-garage-backup", {
         apiVersion: "velero.io/v1",
         kind: "Schedule",
-        metadata: {
-            name: "ehk-garage",
-            annotations: { "argocd.argoproj.io/sync-wave": "5" },
-        },
+        metadata: { name: "ehk-garage" },
         spec: {
             schedule: "30 3 * * *",
             template: {
