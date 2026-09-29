@@ -45,12 +45,15 @@ export default singletonApp({ namespace: "argocd" }, (scope) => {
                         path: "{{.path.path}}",
                     },
                     destination: { name: "in-cluster" },
+                    // Secrets are declared empty and filled in manually; ignore
+                    // their `data` so self-heal doesn't strip the credentials.
+                    ignoreDifferences: [{ group: "", kind: "Secret", jsonPointers: ["/data"] }],
                     syncPolicy: {
                         automated: {
                             prune: true,
                             selfHeal: true,
                         },
-                        syncOptions: ["ServerSideApply=true", "CreateNamespace=true"],
+                        syncOptions: ["ServerSideApply=true", "CreateNamespace=true", "ApplyOutOfSyncOnly=true"],
                     },
                 },
             },
