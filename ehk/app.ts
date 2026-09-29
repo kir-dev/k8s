@@ -102,7 +102,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 },
             },
             configuration: {
-                destinationPath: `s3://${backupBucket}/`,
+                destinationPath: `s3://${backupBucket}/postgres/`,
                 endpointUrl: backupEndpoint,
                 s3Credentials: {
                     accessKeyId: { name: "ehk-backups-secrets", key: "ACCESS_KEY_ID" },
