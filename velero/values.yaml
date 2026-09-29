@@ -1,3 +1,6 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/vmware-tanzu/helm-charts/refs/heads/main/charts/velero/values.schema.json
+# schema kinda broken, ignore errors
+
 # https://github.com/vmware-tanzu/helm-charts/blob/main/charts/velero/values.yaml
 
 # Velero's CSI plugin is built in since v1.14; `EnableCSI` turns it on.

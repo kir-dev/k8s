@@ -9,9 +9,10 @@ import * as environment from "../.dev/environment.ts";
 import * as cnpg from "../imports/postgresql.cnpg.io.ts";
 import * as barman from "../imports/barmancloud.cnpg.io.ts";
 import * as garage from "../imports/garage.rajsingh.info.ts";
-import { ApiObject } from "cdk8s";
-import { versions } from "./versions.ts";
-import { singletonApp } from "../.dev/cdk8s-utils.ts";
+import {ApiObject} from "cdk8s";
+import {versions} from "./versions.ts";
+import {singletonApp} from "../.dev/cdk8s-utils.ts";
+import {DevStorageClass, ProdStorageClass, storageClass} from "../.dev/storageClass.ts";
 
 export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope) => {
     const labels = {
@@ -190,16 +191,8 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // The startup probe below deliberately hits a Payload route so the pod only
     // becomes Ready after that initialization (and thus the migrations) finishes.
 
-    // Self-hosted S3-compatible object storage for the `media` collection,
-    // managed by the garage-operator (see the `garage-operator` app).
-    //
-    // Garage is designed for multi-node clusters, but supports a single node
-    // with a replication factor of 1.
     const garageLabels = { "app.kubernetes.io/name": "ehk-garage", "app.kubernetes.io/part-of": "ehk" };
-    // `memory-ssd` is Ceph RBD in production and the hostpath CSI driver in
-    // development; both support the CSI volume snapshots Velero takes below.
-    // (`node-local-zfs` is OpenEBS ZFS, which does not.)
-    const storageClassName = "memory-ssd";
+    const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
     // The garage-operator does not copy the GarageCluster's labels onto the
     // PVCs it creates, so the storage roles carry an explicit label that the
     // Velero Schedule below selects on.
