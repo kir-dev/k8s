@@ -350,10 +350,13 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         },
     });
 
+    // The Schedule must also live in the Velero namespace (Velero only
+    // reconciles Backup/Schedule resources there); `includedNamespaces` still
+    // selects the ehk namespace below.
     new ApiObject(scope, "ehk-garage-backup", {
         apiVersion: "velero.io/v1",
         kind: "Schedule",
-        metadata: { name: "ehk-garage" },
+        metadata: { name: "ehk-garage", namespace: "velero" },
         spec: {
             schedule: "30 3 * * *",
             template: {
