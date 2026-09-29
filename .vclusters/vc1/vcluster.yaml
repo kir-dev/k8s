@@ -22,6 +22,7 @@ sync:
     # Sync the host's VolumeSnapshotClass(es) so Velero can pick one.
     # Note: these volume-snapshot sync options were removed and rejected by the
     # chart in vCluster 0.36.0, but restored in 0.37.0.
+    # https://github.com/loft-sh/vcluster/blob/3a7bd345d37c91e73c1d0baef53749d8b1912dbb/chart/templates/_validate.tpl#L61-L63
     volumeSnapshotClasses:
       enabled: true
   toHost:
