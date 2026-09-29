@@ -26,6 +26,10 @@ sync:
   toHost:
     networkPolicies:
       enabled: true
+    # Velero needs the real PersistentVolume (with its `spec.csi`), otherwise
+    # vCluster substitutes a pseudo PV and Velero skips CSI snapshots.
+    persistentVolumes:
+      enabled: true
     # Relay VolumeSnapshot(Content) resources from vc2 towards the host, where
     # the CSI driver + snapshot controller live. Both must be enabled together.
     volumeSnapshots:
