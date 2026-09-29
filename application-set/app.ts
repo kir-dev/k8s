@@ -26,7 +26,6 @@ export default singletonApp({ namespace: "argocd" }, (scope) => {
                                 exclude: true,
                             },
                             // TODO: undo before merge to prod!!!!!!!!!!!!!!!!!!!
-                            {path: "ehk", exclude: true},
                             {path: "sprint-review-ha5kfu", exclude: true},
                             {path: "place", exclude: true},
                         ],

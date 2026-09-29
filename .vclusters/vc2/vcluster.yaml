@@ -19,10 +19,19 @@ sync:
     nodes:
       enabled: true
       clearImageStatus: true
+    # Deprecated (removed in vCluster 0.36) but still the mechanism in 0.35:
+    # sync the host's VolumeSnapshotClass(es) so Velero can pick one.
     volumeSnapshotClasses:
-      enabled: false
+      enabled: true
   toHost:
     networkPolicies:
+      enabled: true
+    # Velero runs inside this vCluster and creates VolumeSnapshot(Content)
+    # objects; the CSI driver + snapshot controller live on the host, so these
+    # are synced there. Both must be enabled together.
+    volumeSnapshots:
+      enabled: true
+    volumeSnapshotContents:
       enabled: true
 
 controlPlane:

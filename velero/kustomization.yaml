@@ -1,0 +1,21 @@
+# https://artifacthub.io/packages/helm/vmware-tanzu/velero
+# https://github.com/vmware-tanzu/helm-charts/tree/main/charts/velero
+#
+# Cluster-wide backup tool. Backups (BackupStorageLocation, credential Secret
+# and Velero `Schedule`) are declared per app, e.g. `ehk/app.ts`; the volumes
+# are snapshotted through the CSI driver and the snapshot controller running on
+# the host cluster.
+
+namespace: velero
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+  - name: velero
+    repo: https://vmware-tanzu.github.io/helm-charts
+    version: 12.2.0
+    releaseName: velero
+    namespace: velero
+    includeCRDs: true
+    valuesFile: values.yaml

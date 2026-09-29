@@ -7,7 +7,9 @@
 import * as kube from "../imports/k8s";
 import * as environment from "../.dev/environment.ts";
 import * as cnpg from "../imports/postgresql.cnpg.io.ts";
+import * as barman from "../imports/barmancloud.cnpg.io.ts";
 import * as garage from "../imports/garage.rajsingh.info.ts";
+import { ApiObject } from "cdk8s";
 import { versions } from "./versions.ts";
 import { singletonApp } from "../.dev/cdk8s-utils.ts";
 
@@ -18,6 +20,15 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         "app.kubernetes.io/component": "server",
         "app.kubernetes.io/part-of": "ehk",
     };
+
+    // Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups and
+    // the Velero garage-volume backups (Velero gets its own `velero` prefix so
+    // the two don't clash). The credentials are per app too: the Barman
+    // ObjectStore uses `ehk-backups-secrets` in this namespace, Velero uses
+    // `ehk-backups` in its own namespace (see below).
+    const backupBucket = environment.environment == "Production" ? "kir-dev-ehk-backups" : "ehk-test";
+    const backupEndpoint = "https://s3.eu-central-003.backblazeb2.com";
+    const backupRegion = "eu-central-003";
 
     new kube.KubeConfigMap(scope, "ehk-config", {
         metadata: {
@@ -49,6 +60,55 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                   },
               }
             : {}),
+    });
+
+    // CNPG/Barman backups of `ehk-db` into the shared per-app bucket.
+    new kube.KubeSecret(scope, "ehk-backups-secrets", {
+        metadata: {
+            name: "ehk-backups-secrets",
+            annotations: { "argocd.argoproj.io/sync-wave": "-22" },
+        },
+        // Set manually (Backblaze B2 application key for `ehk`):
+        // stringData:
+        //   ACCESS_KEY_ID:
+        //   ACCESS_SECRET_KEY:
+    });
+
+    new barman.ObjectStore(scope, "ehk-backups", {
+        metadata: {
+            name: "ehk-backups",
+            annotations: { "argocd.argoproj.io/sync-wave": "-21" },
+        },
+        spec: {
+            instanceSidecarConfiguration: {
+                resources: {
+                    limits: {
+                        cpu: barman.ObjectStoreSpecInstanceSidecarConfigurationResourcesLimits.fromString("1"),
+                        memory: barman.ObjectStoreSpecInstanceSidecarConfigurationResourcesLimits.fromString("512Mi"),
+                        "ephemeral-storage":
+                            barman.ObjectStoreSpecInstanceSidecarConfigurationResourcesLimits.fromString("500Mi"),
+                    },
+                    requests: {
+                        cpu: barman.ObjectStoreSpecInstanceSidecarConfigurationResourcesRequests.fromString("100m"),
+                        memory: barman.ObjectStoreSpecInstanceSidecarConfigurationResourcesRequests.fromString("128Mi"),
+                        "ephemeral-storage":
+                            barman.ObjectStoreSpecInstanceSidecarConfigurationResourcesRequests.fromString("100Mi"),
+                    },
+                },
+            },
+            configuration: {
+                destinationPath: `s3://${backupBucket}/`,
+                endpointUrl: backupEndpoint,
+                s3Credentials: {
+                    accessKeyId: { name: "ehk-backups-secrets", key: "ACCESS_KEY_ID" },
+                    secretAccessKey: { name: "ehk-backups-secrets", key: "ACCESS_SECRET_KEY" },
+                },
+                wal: {
+                    compression: barman.ObjectStoreSpecConfigurationWalCompression.GZIP,
+                    maxParallel: 8,
+                },
+            },
+        },
     });
 
     new cnpg.Cluster(scope, "ehk-db", {
@@ -91,12 +151,32 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 size: "1.5Gi",
                 storageClass: "node-local-zfs",
             },
+            // Archive WAL to the shared bucket (see the ObjectStore above).
+            plugins: [
+                {
+                    name: "barman-cloud.cloudnative-pg.io",
+                    enabled: true, // needed otherwise ArgoCD complains
+                    isWalArchiver: true,
+                    parameters: { barmanObjectName: "ehk-backups" },
+                },
+            ],
             bootstrap: {
                 initdb: {
                     database: "ehk",
                     owner: "ehk",
                 },
             },
+        },
+    });
+
+    new cnpg.ScheduledBackup(scope, "ehk-db-backup", {
+        metadata: { name: "ehk-db-backup" },
+        spec: {
+            cluster: { name: "ehk-db" },
+            schedule: "0 17 3 * * *", // At 3:17 every day
+            backupOwnerReference: cnpg.ScheduledBackupSpecBackupOwnerReference.SELF,
+            method: cnpg.ScheduledBackupSpecMethod.PLUGIN,
+            pluginConfiguration: { name: "barman-cloud.cloudnative-pg.io" },
         },
     });
 
@@ -111,7 +191,14 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // Garage is designed for multi-node clusters, but supports a single node
     // with a replication factor of 1.
     const garageLabels = { "app.kubernetes.io/name": "ehk-garage", "app.kubernetes.io/part-of": "ehk" };
-    const storageClassName = "node-local-zfs";
+    // `memory-ssd` is Ceph RBD in production and the hostpath CSI driver in
+    // development; both support the CSI volume snapshots Velero takes below.
+    // (`node-local-zfs` is OpenEBS ZFS, which does not.)
+    const storageClassName = "memory-ssd";
+    // The garage-operator does not copy the GarageCluster's labels onto the
+    // PVCs it creates, so the storage roles carry an explicit label that the
+    // Velero Schedule below selects on.
+    const garageBackupLabels = { "backup.kir-dev.hu/ehk-garage": "true" };
 
     // Static admin bootstrap token. The operator uses it to drive Garage's
     // Admin API; GarageAdminToken writes it into the `ehk-garage-admin` secret
@@ -143,10 +230,12 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 metadata: {
                     size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                     storageClassName,
+                    labels: garageBackupLabels,
                 },
                 data: {
                     size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
                     storageClassName,
+                    labels: garageBackupLabels,
                 },
                 // A single-node cluster cannot tolerate any disruption anyway,
                 // and a PDB would block draining the node.
@@ -216,6 +305,68 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 credentialsFileProfile: "default",
             },
             bucketPermissions: [{ bucketRef: { name: "ehk-media" }, read: true, write: true, owner: false }],
+        },
+    });
+
+    // Back up the Garage volumes with Velero. Garage is the only part of this
+    // app whose data cannot be rebuilt from Git, so only its PVCs (labelled
+    // above) are backed up; the rest of the namespace is recreated by ArgoCD.
+    //
+    // Velero's built-in CSI plugin takes the snapshots. The CSI driver and the
+    // snapshot controller run on the host cluster; the vCluster syncs
+    // VolumeSnapshot/VolumeSnapshotContent resources there and the
+    // VolumeSnapshotClass(es) back (see `.vclusters/vc2/vcluster.yaml`).
+    //
+    // The BackupStorageLocation (and its credential Secret) must live in the
+    // Velero namespace, so they are declared here but namespaced to `velero`.
+    // Velero writes under the `velero` prefix of the shared bucket; Barman uses
+    // the bucket root (see the ObjectStore above).
+    new kube.KubeSecret(scope, "ehk-velero-backups-secret", {
+        metadata: { name: "ehk-backups", namespace: "velero" },
+        // Set manually (same Backblaze B2 application key as
+        // `ehk-backups-secrets`, in Velero's credentials-file format):
+        // stringData:
+        //   cloud: |
+        //     [default]
+        //     aws_access_key_id=
+        //     aws_secret_access_key=
+    });
+
+    new ApiObject(scope, "ehk-velero-backup-location", {
+        apiVersion: "velero.io/v1",
+        kind: "BackupStorageLocation",
+        metadata: { name: "ehk", namespace: "velero" },
+        spec: {
+            provider: "aws",
+            objectStorage: { bucket: backupBucket, prefix: "velero" },
+            credential: { name: "ehk-backups", key: "cloud" },
+            config: {
+                region: backupRegion,
+                s3Url: backupEndpoint,
+                s3ForcePathStyle: "true",
+                // Backblaze B2 needs the AWS SDK v2 checksum middleware disabled.
+                checksumAlgorithm: "",
+            },
+        },
+    });
+
+    new ApiObject(scope, "ehk-garage-backup", {
+        apiVersion: "velero.io/v1",
+        kind: "Schedule",
+        metadata: {
+            name: "ehk-garage",
+            annotations: { "argocd.argoproj.io/sync-wave": "5" },
+        },
+        spec: {
+            schedule: "30 3 * * *",
+            template: {
+                includedNamespaces: ["ehk"],
+                labelSelector: { matchLabels: garageBackupLabels },
+                storageLocation: "ehk",
+                snapshotVolumes: true,
+                defaultVolumesToFsBackup: false,
+                ttl: "720h",
+            },
         },
     });
 

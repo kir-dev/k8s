@@ -1,4 +1,9 @@
 # Apply these when running the cluster in a dev environment
+#
+# `memory-ssd` is Ceph RBD in production; here it is backed by
+# csi-driver-host-path so that Velero's CSI volume snapshots work locally
+# (see `.dev/local-cluster.ts`). The others are plain local-path, which does
+# not support snapshots.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -17,5 +22,7 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: memory-ssd
-provisioner: rancher.io/local-path
-volumeBindingMode: WaitForFirstConsumer
+provisioner: hostpath.csi.k8s.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true

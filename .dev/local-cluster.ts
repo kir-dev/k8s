@@ -1,5 +1,6 @@
 import { $ } from "bun";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
 import { check, confirm, have, ok, text } from "./shell-utils";
 import applicationSet from "../application-set/app.ts";
 import { kubectlApplyCdk8sApp } from "./kubectl-utils.ts";
@@ -19,6 +20,11 @@ const GIT_SERVER_TARGET_BRANCH = "main";
 const GIT_SERVER_NAMESPACE = "argocd";
 const GIT_SERVER_SERVICE = "git-server";
 const GIT_SERVER_PROXY_LOCAL_PORT = 19418;
+
+// CSI snapshot support for local development. Production uses Ceph RBD.
+const EXTERNAL_SNAPSHOTTER_VERSION = "v8.6.0";
+const HOSTPATH_CSI_VERSION = "v1.18.0";
+const HOSTPATH_CSI_DIR = join(ROOT, ".dev", ".cache", "csi-driver-host-path");
 
 const VCLUSTERS = [
     { name: "vc1", namespace: "vc1", file: join(ROOT, ".vclusters/vc1/vcluster.yaml") },
@@ -125,8 +131,42 @@ async function applyDevStorageClasses(): Promise<void> {
     await check($`kubectl apply -f ${join(ROOT, ".dev/dev-storage-classes.yaml")}`);
 }
 
+/**
+ * Install a snapshot-capable CSI driver on the (host) k3d cluster so that
+ * Velero's volume snapshots work locally. Production uses Ceph RBD instead.
+ *
+ * `memory-ssd` in `.dev/dev-storage-classes.yaml` points at this driver, and
+ * the vClusters sync the VolumeSnapshotClass(es) into the tenant cluster
+ * (where Velero runs).
+ */
+async function installHostPathCsiDriver(): Promise<void> {
+    const snapshotter = `https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${EXTERNAL_SNAPSHOTTER_VERSION}`;
+    for (const crd of ["volumesnapshotclasses", "volumesnapshotcontents", "volumesnapshots"]) {
+        await check($`kubectl apply -f ${snapshotter}/client/config/crd/snapshot.storage.k8s.io_${crd}.yaml`);
+    }
+    await check($`kubectl apply -f ${snapshotter}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml`);
+    await check(
+        $`kubectl apply -f ${snapshotter}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml`,
+    );
+
+    mkdirSync(dirname(HOSTPATH_CSI_DIR), { recursive: true });
+    if (!existsSync(HOSTPATH_CSI_DIR)) {
+        await check(
+            $`git clone --depth 1 --branch ${HOSTPATH_CSI_VERSION} https://github.com/kubernetes-csi/csi-driver-host-path ${HOSTPATH_CSI_DIR}`,
+        );
+    }
+    await check($`${join(HOSTPATH_CSI_DIR, "deploy/kubernetes-latest/deploy.sh")}`);
+
+    // Velero selects a VolumeSnapshotClass by the
+    // `velero.io/csi-volumesnapshot-class: "true"` label (or a default
+    // annotation); the stock hostpath class has neither.
+    await check(
+        $`kubectl label volumesnapshotclass csi-hostpath-snapclass velero.io/csi-volumesnapshot-class=true --overwrite`,
+    );
+}
+
 async function up(): Promise<void> {
-    for (const bin of ["k3d", "vcluster", "kubectl", "helm", "git", "bun"]) {
+    for (const bin of ["k3d", "vcluster", "kubectl", "helm", "git", "curl", "bun"]) {
         if (!(await have(bin))) {
             console.error(`✗ missing required tool: ${bin}`);
             process.exit(1);
@@ -148,6 +188,7 @@ async function up(): Promise<void> {
     }
 
     await check($`kubectl config use-context k3d-${K3D_CLUSTER_NAME}`);
+    await installHostPathCsiDriver();
     await applyDevStorageClasses();
     await ensureVcluster(VCLUSTERS[0]);
     await ensureVcluster(VCLUSTERS[1]);

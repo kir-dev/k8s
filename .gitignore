@@ -2,6 +2,8 @@
 **/charts
 .junie
 
+.dev/.cache/
+
 imports
 dist/
 node_modules

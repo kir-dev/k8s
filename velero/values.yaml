@@ -1,0 +1,45 @@
+# https://github.com/vmware-tanzu/helm-charts/blob/main/charts/velero/values.yaml
+
+# Velero's CSI plugin is built in since v1.14; `EnableCSI` turns it on.
+configuration:
+  features: EnableCSI
+
+  # BackupStorageLocations are declared per app (e.g. `ehk/app.ts`), each with
+  # its own bucket and credentials, so the chart creates neither the default
+  # BackupStorageLocation nor a VolumeSnapshotLocation (CSI doesn't use the
+  # latter).
+  backupStorageLocation: []
+  volumeSnapshotLocation: []
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.14.4
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+# We install the CRDs from the chart's `crds/` directory (via `includeCRDs` in
+# kustomization.yaml). The chart's own upgrade job is a Helm hook, which
+# kustomize/ArgoCD would apply as a normal, never-deleted Job and then fail to
+# update it on the next sync.
+upgradeCRDs: false
+
+backupsEnabled: false
+
+# No global credentials: each BackupStorageLocation references its own Secret.
+credentials:
+  useSecret: false
+
+# CSI snapshots don't need the node-agent (that's for file-system backups).
+deployNodeAgent: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    ephemeral-storage: 0
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 500Mi
