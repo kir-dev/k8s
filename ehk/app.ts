@@ -66,7 +66,12 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     new kube.KubeSecret(scope, "ehk-backups-secrets", {
         metadata: {
             name: "ehk-backups-secrets",
-            annotations: { "argocd.argoproj.io/sync-wave": "-22" },
+            annotations: {
+                "argocd.argoproj.io/sync-wave": "-22",
+                // The credentials are filled in manually; keep ArgoCD from
+                // pruning the extra `data` keys it doesn't declare.
+                "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+            },
         },
         // Set manually (Backblaze B2 application key for `ehk`):
         // stringData:
@@ -322,7 +327,15 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // Velero writes under the `velero` prefix of the shared bucket; Barman uses
     // the bucket root (see the ObjectStore above).
     new kube.KubeSecret(scope, "ehk-velero-backups-secret", {
-        metadata: { name: "ehk-backups", namespace: "velero" },
+        metadata: {
+            name: "ehk-backups",
+            namespace: "velero",
+            annotations: {
+                // The credentials are filled in manually; keep ArgoCD from
+                // pruning the extra `data` key it doesn't declare.
+                "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+            },
+        },
         // Set manually (same Backblaze B2 application key as
         // `ehk-backups-secrets`, in Velero's credentials-file format):
         // stringData:
