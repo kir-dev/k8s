@@ -179,7 +179,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         metadata: { name: "ehk-db-backup" },
         spec: {
             cluster: { name: "ehk-db" },
-            schedule: "0 17 3 * * *", // At 3:17 every day
+            schedule: "0 18 3 * * *", // At 3:18 every day
             backupOwnerReference: cnpg.ScheduledBackupSpecBackupOwnerReference.SELF,
             method: cnpg.ScheduledBackupSpecMethod.PLUGIN,
             pluginConfiguration: { name: "barman-cloud.cloudnative-pg.io" },
@@ -306,15 +306,6 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         },
     });
 
-    // Back up the Garage volumes with Velero. Garage is the only part of this
-    // app whose data cannot be rebuilt from Git, so only its PVCs (labelled
-    // above) are backed up; the rest of the namespace is recreated by ArgoCD.
-    //
-    // Velero's built-in CSI plugin takes the snapshots. The CSI driver and the
-    // snapshot controller run on the host cluster; the vCluster syncs
-    // VolumeSnapshot/VolumeSnapshotContent resources there and the
-    // VolumeSnapshotClass(es) back (see `.vclusters/vc2/vcluster.yaml`).
-    //
     // The BackupStorageLocation (and its credential Secret) must live in the
     // Velero namespace, so they are declared here but namespaced to `velero`.
     // Velero writes under the `velero` prefix of the shared bucket; Barman uses
@@ -459,32 +450,34 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         },
     });
 
-    new kube.KubeIngress(scope, "ehk-ingress", {
-        metadata: {
-            name: "ehk",
-            labels,
-            annotations: {
-                "cert-manager.io/cluster-issuer": "letsencrypt",
-                "acme.cert-manager.io/http01-ingress-class": "traefik",
-            },
-        },
-        spec: {
-            ingressClassName: "traefik",
-            tls: [{ hosts: ["ehk.kir-dev.hu"], secretName: "ehk-tls-cert" }],
-            rules: [
-                {
-                    host: "ehk.kir-dev.hu",
-                    http: {
-                        paths: [
-                            {
-                                path: "/",
-                                pathType: "Prefix",
-                                backend: { service: { name: "ehk", port: { name: "http" } } },
-                            },
-                        ],
-                    },
+    if (false!) {
+        new kube.KubeIngress(scope, "ehk-temp-ingress", {
+            metadata: {
+                name: "ehk-temp",
+                labels,
+                annotations: {
+                    "cert-manager.io/cluster-issuer": "letsencrypt",
+                    "acme.cert-manager.io/http01-ingress-class": "traefik",
                 },
-            ],
-        },
-    });
+            },
+            spec: {
+                ingressClassName: "traefik",
+                tls: [{ hosts: ["ehk-de-most-mar-tenyleg.kir-dev.hu"], secretName: "ehk-temp-tls-cert" }],
+                rules: [
+                    {
+                        host: "ehk-de-most-mar-tenyleg.kir-dev.hu",
+                        http: {
+                            paths: [
+                                {
+                                    path: "/",
+                                    pathType: "Prefix",
+                                    backend: { service: { name: "ehk", port: { name: "http" } } },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        });
+    }
 });
