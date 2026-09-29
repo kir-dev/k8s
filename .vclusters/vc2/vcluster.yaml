@@ -20,6 +20,8 @@ sync:
       enabled: true
       clearImageStatus: true
     # Sync the host's VolumeSnapshotClass(es) so Velero can pick one.
+    # Note: these volume-snapshot sync options were removed and rejected by the
+    # chart in vCluster 0.36.0, but restored in 0.37.0.
     volumeSnapshotClasses:
       enabled: true
   toHost:
