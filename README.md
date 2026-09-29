@@ -134,11 +134,22 @@ ArgoCD checks each top-level directory except the ones starting with a `.`. If i
   https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd
 - `kustomization.yaml` documentation: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/
 
-## Bootstrapping the production cluster
+## Production cluster
+
+`vc-kirdev` vCluster at [KSZK](https://kszk.bme.hu). This repo is deployed into an inner `vc2` vCluster cluster.
+
+### Bootstrapping the production cluster
 
 Given `kubectl config current-context` == `vc-kirdev`, the following installs the inner vCluster, Argo CD and the ApplicationSet.
 
 ```bash
+# Set KIRDEV_ENVIRONMENT=Production and KIRDEV_K8S_REPO before running. (or don't, idk)
 bun install
 bun run bootstrap-prod
+```
+
+### Updating the `vc2` vCluster
+
+```sh
+vcluster create --upgrade vc2 -n vc2 -f .vclusters/vc2/vcluster.yaml
 ```
