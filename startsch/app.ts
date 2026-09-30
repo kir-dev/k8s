@@ -155,55 +155,53 @@ export default singletonApp({ namespace: "startsch", createNamespace: true }, (s
         },
     };
 
-    if (environment.environment == "Production") {
-        (clusterProps.spec.externalClusters ??= []).push(
-            {
-                name: "backblaze-backup",
-                plugin: {
-                    name: "barman-cloud.cloudnative-pg.io",
-                    enabled: true, // needed otherwise ArgoCD complains about being OutOfSync
-                    isWalArchiver: false, // needed otherwise ArgoCD complains about being OutOfSync
-                    parameters: { barmanObjectName: "startsch-backups", serverName: "startsch-db" },
-                },
-            },
-        );
-    }
+    const spec: cnpg.ClusterSpec = {
+        ...clusterProps.spec,
+        ...(environment.environment == "Production"
+            ? {
+                  externalClusters: [
+                      {
+                          name: "backblaze-backup",
+                          plugin: {
+                              name: "barman-cloud.cloudnative-pg.io",
+                              enabled: true, // needed otherwise ArgoCD complains about being OutOfSync
+                              isWalArchiver: false, // needed otherwise ArgoCD complains about being OutOfSync
+                              parameters: { barmanObjectName: "startsch-backups", serverName: "startsch-db" },
+                          },
+                      },
+                  ],
+              }
+            : {}),
+        bootstrap:
+            bootstrapMode == "initdb"
+                ? {
+                      initdb: {
+                          database: "startsch",
+                          owner: "startsch",
+                      },
+                  }
+                : {
+                      recovery: {
+                          source: "backblaze-backup",
+                          database: "startsch",
+                          owner: "startsch",
+                      },
+                  },
+        ...(enableBackup
+            ? {
+                  plugins: [
+                      {
+                          name: "barman-cloud.cloudnative-pg.io",
+                          enabled: true, // needed otherwise ArgoCD complains
+                          isWalArchiver: true,
+                          parameters: { barmanObjectName: "startsch-backups" },
+                      },
+                  ],
+              }
+            : {}),
+    };
 
-    switch (bootstrapMode) {
-        case "initdb":
-            clusterProps.spec.bootstrap = {
-                initdb: {
-                    database: "startsch",
-                    owner: "startsch",
-                },
-            };
-            break;
-        case "recovery":
-            clusterProps.spec.bootstrap =
-                {
-                    recovery: {
-                        source: "backblaze-backup",
-                        database: "startsch",
-                        owner: "startsch",
-                    },
-                };
-            break;
-        default:
-            throw new Error();
-    }
-
-    if (enableBackup) {
-        (clusterProps.spec.plugins ??= []).push(
-            {
-                name: "barman-cloud.cloudnative-pg.io",
-                enabled: true, // needed otherwise ArgoCD complains
-                isWalArchiver: true,
-                parameters: { barmanObjectName: "startsch-backups" },
-            },
-        );
-    }
-
-    new cnpg.Cluster(scope, "startsch-db", clusterProps);
+    new cnpg.Cluster(scope, "startsch-db", { ...clusterProps, spec });
 
     if (enableBackup) {
         new cnpg.ScheduledBackup(scope, "startsch-backup", {
