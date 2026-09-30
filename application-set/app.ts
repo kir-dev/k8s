@@ -1,8 +1,8 @@
-import { ApplicationSet } from "../imports/argoproj.io";
+import {ApplicationSet} from "../imports/argoproj.io";
 import * as environment from "../.dev/environment.ts";
-import { singletonApp } from "../.dev/cdk8s-utils.ts";
+import {singletonApp} from "../.dev/cdk8s-utils.ts";
 
-export default singletonApp({ namespace: "argocd" }, (scope) => {
+export default singletonApp({namespace: "argocd"}, (scope) => {
     new ApplicationSet(scope, "application-set", {
         metadata: {
             name: "application-set",
@@ -35,6 +35,8 @@ export default singletonApp({ namespace: "argocd" }, (scope) => {
             template: {
                 metadata: {
                     name: "{{.path.basename}}",
+                    // Delete the resources created by an Application when it's deleted
+                    // https://argo-cd.readthedocs.io/en/stable/user-guide/app_deletion/#about-the-deletion-finalizer
                     finalizers: ["resources-finalizer.argocd.argoproj.io"],
                 },
                 spec: {
@@ -43,11 +45,22 @@ export default singletonApp({ namespace: "argocd" }, (scope) => {
                         repoUrl: environment.k8sRepoUrl,
                         targetRevision: environment.k8sRepoRevision,
                         path: "{{.path.path}}",
+                        plugin: {
+                            env: [
+                                {name: environment.KIRDEV_K8S_ENVIRONMENT, value: environment.environment},
+                                {name: environment.KIRDEV_K8S_REPO_URL, value: environment.k8sRepoUrl},
+                                ...(
+                                    environment.k8sRepoRevision
+                                        ? [{
+                                            name: environment.KIRDEV_K8S_REPO_REVISION,
+                                            value: environment.k8sRepoRevision
+                                        }]
+                                        : []
+                                )
+                            ]
+                        }
                     },
-                    destination: { name: "in-cluster" },
-                    // Secrets are declared empty and filled in manually; ignore
-                    // their `data` so self-heal doesn't strip the credentials.
-                    ignoreDifferences: [{ group: "", kind: "Secret", jsonPointers: ["/data"] }],
+                    destination: {name: "in-cluster"},
                     syncPolicy: {
                         automated: {
                             prune: true,

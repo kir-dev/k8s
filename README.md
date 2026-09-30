@@ -35,6 +35,8 @@ and [vcluster](https://www.vcluster.com/install):
   sudo chmod +x /usr/local/bin/vcluster
   ```
 
+`TODO:` Use a Nix flake and `nix develop`
+
 Once you have all the tools needed, deploy the cluster on your local computer using k3d:
 
 ```bash
@@ -143,7 +145,6 @@ ArgoCD checks each top-level directory except the ones starting with a `.`. If i
 Given `kubectl config current-context` == `vc-kirdev`, the following installs the inner vCluster, Argo CD and the ApplicationSet.
 
 ```bash
-# Set KIRDEV_ENVIRONMENT=Production and KIRDEV_K8S_REPO before running. (or don't, idk)
 bun install
 bun run bootstrap-prod
 ```
