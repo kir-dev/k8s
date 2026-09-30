@@ -1,5 +1,3 @@
-// Set KIRDEV_ENVIRONMENT=Production and KIRDEV_K8S_REPO before running.
-
 import { $ } from "bun";
 import { kubectlApplyCdk8sApp } from "./kubectl-utils.ts";
 import applicationSet from "../application-set/app.ts";

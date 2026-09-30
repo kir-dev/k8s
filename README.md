@@ -73,20 +73,22 @@ Create a new directory containing
   - `app.ts`:
     ```ts
     import { versions } from "./versions.ts";
-    import { IntOrString, KubeDeployment, KubeNamespace, KubeService, Quantity } from "../imports/k8s";
+    import * as kube from "../imports/k8s";
     import * as environment from "../.dev/environment.ts";
     import * as cnpg from "../imports/postgresql.cnpg.io.ts";
     class MyApp extends Chart {
         constructor(scope: Construct, id: string) {
             super(scope, id);
             new cnpg.Cluster(this, /*...*/);
-            new KubeDeployment(this, /*...*/);
+            new kube.KubeDeployment(this, /*...*/);
             /*...*/
         }
     }
     const app = new App();
     new MyApp(app, "myapp");
     export default app;
+    // or use singletonApp()
+    // TODO
     ```
   - `renovate.ts`:
     ```ts
@@ -138,7 +140,7 @@ ArgoCD checks each top-level directory except the ones starting with a `.`. If i
 
 ## Production cluster
 
-`vc-kirdev` vCluster at [KSZK](https://kszk.bme.hu). This repo is deployed into an inner `vc2` vCluster cluster.
+`vc-kirdev` vCluster at [KSZK](https://kszk.bme.hu). This repo is deployed into a `vc2` vCluster inside `vc-kirdev`.
 
 ### Bootstrapping the production cluster
 
