@@ -25,9 +25,8 @@ export default singletonApp({namespace: "argocd"}, (scope) => {
                                 path: ".*",
                                 exclude: true,
                             },
-                            // TODO: undo before merge to prod!!!!!!!!!!!!!!!!!!!
-                            {path: "sprint-review-ha5kfu", exclude: true},
-                            {path: "place", exclude: true},
+                            // Disable velero until we have Volume Snapshots in prod
+                            {path: "velero", exclude: true},
                         ],
                     },
                 },

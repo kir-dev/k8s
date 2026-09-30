@@ -307,66 +307,69 @@ export default singletonApp({namespace: "ehk", createNamespace: true}, (scope) =
         },
     });
 
-    // The BackupStorageLocation (and its credential Secret) must live in the
-    // Velero namespace, so they are declared here but namespaced to `velero`.
-    // Velero writes under the `velero` prefix of the shared bucket; Barman uses
-    // the bucket root (see the ObjectStore above).
-    new kube.KubeSecret(scope, "ehk-velero-backups-secret", {
-        metadata: {
-            name: "ehk-backups",
-            namespace: "velero",
-            annotations: {
-                // The credentials are filled in manually; keep ArgoCD from
-                // pruning the extra `data` key it doesn't declare.
-                "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+    // Disable Velero (backup) stuff until Volume Snapshots are available in prod
+    if (false!) {
+        // The BackupStorageLocation (and its credential Secret) must live in the
+        // Velero namespace, so they are declared here but namespaced to `velero`.
+        // Velero writes under the `velero` prefix of the shared bucket; Barman uses
+        // the bucket root (see the ObjectStore above).
+        new kube.KubeSecret(scope, "ehk-velero-backups-secret", {
+            metadata: {
+                name: "ehk-backups",
+                namespace: "velero",
+                annotations: {
+                    // The credentials are filled in manually; keep ArgoCD from
+                    // pruning the extra `data` key it doesn't declare.
+                    "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+                },
             },
-        },
-        // Set manually (same Backblaze B2 application key as
-        // `ehk-backups-secrets`, in Velero's credentials-file format):
-        // stringData:
-        //   cloud: |
-        //     [default]
-        //     aws_access_key_id=
-        //     aws_secret_access_key=
-    });
+            // Set manually (same Backblaze B2 application key as
+            // `ehk-backups-secrets`, in Velero's credentials-file format):
+            // stringData:
+            //   cloud: |
+            //     [default]
+            //     aws_access_key_id=
+            //     aws_secret_access_key=
+        });
 
-    new ApiObject(scope, "ehk-velero-backup-location", {
-        apiVersion: "velero.io/v1",
-        kind: "BackupStorageLocation",
-        metadata: {name: "ehk", namespace: "velero"},
-        spec: {
-            provider: "aws",
-            objectStorage: {bucket: backupBucket, prefix: "velero"},
-            credential: {name: "ehk-backups", key: "cloud"},
-            config: {
-                region: backupRegion,
-                s3Url: backupEndpoint,
-                s3ForcePathStyle: "true",
-                // Backblaze B2 needs the AWS SDK v2 checksum middleware disabled.
-                checksumAlgorithm: "",
+        new ApiObject(scope, "ehk-velero-backup-location", {
+            apiVersion: "velero.io/v1",
+            kind: "BackupStorageLocation",
+            metadata: {name: "ehk", namespace: "velero"},
+            spec: {
+                provider: "aws",
+                objectStorage: {bucket: backupBucket, prefix: "velero"},
+                credential: {name: "ehk-backups", key: "cloud"},
+                config: {
+                    region: backupRegion,
+                    s3Url: backupEndpoint,
+                    s3ForcePathStyle: "true",
+                    // Backblaze B2 needs the AWS SDK v2 checksum middleware disabled.
+                    checksumAlgorithm: "",
+                },
             },
-        },
-    });
+        });
 
-    // The Schedule must also live in the Velero namespace (Velero only
-    // reconciles Backup/Schedule resources there); `includedNamespaces` still
-    // selects the ehk namespace below.
-    new ApiObject(scope, "ehk-garage-backup", {
-        apiVersion: "velero.io/v1",
-        kind: "Schedule",
-        metadata: {name: "ehk-garage", namespace: "velero"},
-        spec: {
-            schedule: "30 3 * * *",
-            template: {
-                includedNamespaces: ["ehk"],
-                labelSelector: {matchLabels: garageBackupLabels},
-                storageLocation: "ehk",
-                snapshotVolumes: true,
-                defaultVolumesToFsBackup: false,
-                ttl: "720h",
+        // The Schedule must also live in the Velero namespace (Velero only
+        // reconciles Backup/Schedule resources there); `includedNamespaces` still
+        // selects the ehk namespace below.
+        new ApiObject(scope, "ehk-garage-backup", {
+            apiVersion: "velero.io/v1",
+            kind: "Schedule",
+            metadata: {name: "ehk-garage", namespace: "velero"},
+            spec: {
+                schedule: "30 3 * * *",
+                template: {
+                    includedNamespaces: ["ehk"],
+                    labelSelector: {matchLabels: garageBackupLabels},
+                    storageLocation: "ehk",
+                    snapshotVolumes: true,
+                    defaultVolumesToFsBackup: false,
+                    ttl: "720h",
+                },
             },
-        },
-    });
+        });
+    }
 
     new kube.KubeService(scope, "ehk-service", {
         metadata: {name: "ehk", labels},
@@ -451,6 +454,7 @@ export default singletonApp({namespace: "ehk", createNamespace: true}, (scope) =
         },
     });
 
+    // Temp domain, proxies /eszb to ehk.bme.hu
     if (environment.environment == "Production") {
         new kube.KubeIngress(scope, "ehk-temp-ingress", {
             metadata: {
