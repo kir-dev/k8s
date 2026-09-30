@@ -1,6 +1,6 @@
 export const KIRDEV_K8S_ENVIRONMENT = "KIRDEV_K8S_ENVIRONMENT";
 export const KIRDEV_K8S_REPO_URL = "KIRDEV_K8S_REPO_URL";
-export const KIRDEV_K8S_REPO_REVISION = "KIRDEV_K8S_REPO_URL";
+export const KIRDEV_K8S_REPO_REVISION = "KIRDEV_K8S_REPO_REVISION";
 
 export const environment: "Development" | "Production" = (() => {
     const e = process.env[KIRDEV_K8S_ENVIRONMENT];
