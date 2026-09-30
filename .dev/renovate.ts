@@ -1,5 +1,5 @@
 /**
- * Run Renovate for a single app from that app's own CI pipeline (PLAN.md).
+ * Run Renovate for a single app from that app's own CI pipeline.
  *
  * Usage (in an app repository's GitHub Actions):
  *
@@ -8,15 +8,15 @@
  *   bun install
  *   bun run renovate APP_NAME
  *
- * This renders `<APP_NAME>/renovate.ts` (which typically imports
- * `appConfig()` from `.dev/renovate-config.ts`) and hands it to Renovate.
+ * This renders `<APP_NAME>/renovate.ts` and hands it to Renovate.
  */
 import { $ } from "bun";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 // Renovate's native `re2` addon is built against Node's V8 ABI and crashes
-// under bun, so bunx runs it with Node (its bin shebang) rather than `--bun`.
+// under bun, so we can't use `bunx --bun` to force it to use bun instead of node.
+
 const RENOVATE_VERSION = "44.103.0";
 
 const app = process.argv[2];

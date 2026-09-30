@@ -7,17 +7,8 @@ export interface RenovateAppOptions {
     gitAuthor?: string;
 }
 
-/**
- * Build the Renovate *global* config for one cdk8s app.
- *
- * Each app's `renovate.ts` is passed via `RENOVATE_CONFIG_FILE` by
- * `.dev/renovate.ts`. Renovate runs in the app's own CI (see PLAN.md), opens a
- * PR against kir-dev/k8s updating `<app>/versions.ts`, and only that file: the
- * custom regex manager is scoped to it and every other manager is disabled.
- *
- * `versions.ts` entries are `owner/image:tag@sha256:...` strings, so the
- * `docker` datasource + `pinDigests` keeps both the tag and the digest current.
- */
+// Renovate config that configures it to only look for Docker image references in the specified app's versions.ts
+// in the specified repo, then to open/update a GitHub PR.
 export function appConfig(app: string, options: RenovateAppOptions = {}): AllConfig {
     const repository = options.repository ?? "kir-dev/k8s";
     const gitAuthor = options.gitAuthor ?? "Kir-Dev Bot <258595904+kir-dev-bot@users.noreply.github.com>";
@@ -37,6 +28,10 @@ export function appConfig(app: string, options: RenovateAppOptions = {}): AllCon
                         customType: "regex",
                         managerFilePatterns: [`/^${app}\\/versions\\.ts$/`],
                         matchStrings: [
+                            // docker image ref looking strings surrounded by "", examples:
+                            // nginx:1.21.6
+                            // node:18-alpine@sha256:d48d085dfb2c8a2b535d4d3d191afdbff8efd23be578bc40bfed5242d50e82be
+                            // ghcr.io/username/repo:v1.0.0
                             `['"](?<depName>[^@'"\\s]+):(?<currentValue>[^@'"\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?['"]`,
                         ],
                         datasourceTemplate: "docker",

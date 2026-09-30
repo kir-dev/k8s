@@ -1,16 +1,3 @@
-/**
- * Render a single cdk8s Application: ./APP_NAME/app.ts.
- *
- * `app.ts` default-exports a crafted `App` (see PLAN.md); this script just
- * imports it and calls `.synth()`. The output directory is passed through the
- * `CDK8S_OUTDIR` env var, which `new App()` picks up, so app.ts stays free of
- * build plumbing.
- *
- * Usage: bun .dev/cdk8s-synth.ts APP_NAME
- *
- * ArgoCD runs this per cdk8s Application via the Config Management Plugin
- * sidecar; `dist/APP_NAME/*.k8s.yaml` is what gets applied.
- */
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
