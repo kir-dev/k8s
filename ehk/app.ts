@@ -524,28 +524,19 @@ export default singletonApp({namespace: "ehk", createNamespace: true}, (scope) =
             },
         });
 
-        // The legacy `/eszb` pages are still served by the old EHK box, so proxy
-        // them there. A selector-less Service with a manually-managed EndpointSlice
-        // turns the external IP into a valid Ingress backend; Traefik resolves the
-        // endpoints directly and the original Host header (ehk.bme.hu) is passed
-        // through unchanged.
-        const eszbEndpoint = "152.66.125.225";
-
+        // The legacy `/eszb` pages are still served by the old EHK box. An
+        // ExternalName Service points Traefik at the box's IP without a
+        // manually-managed EndpointSlice, which Argo CD excludes from its
+        // resource supervision. Traefik builds the backend URL directly from
+        // this value, so no DNS is involved. The original Host header
+        // (ehk.bme.hu) is passed through unchanged by the middleware above.
         new kube.KubeService(scope, "ehk-eszb-service", {
             metadata: {name: "ehk-eszb", labels},
             spec: {
-                ports: [{name: "http", port: 80, targetPort: kube.IntOrString.fromNumber(80)}],
+                type: "ExternalName",
+                externalName: "152.66.125.225",
+                ports: [{name: "http", port: 80}],
             },
-        });
-
-        new kube.KubeEndpointSlice(scope, "ehk-eszb-endpoints", {
-            metadata: {
-                name: "ehk-eszb",
-                labels: {...labels, "kubernetes.io/service-name": "ehk-eszb"},
-            },
-            addressType: "IPv4",
-            endpoints: [{addresses: [eszbEndpoint], conditions: {ready: true}}],
-            ports: [{name: "http", port: 80, protocol: "TCP"}],
         });
     }
 

@@ -9,6 +9,9 @@ ingressClass:
 providers:
   kubernetesIngress:
     enabled: true
+    # Required so the EHK `/eszb` proxy can target the off-cluster box via an
+    # ExternalName Service (see ehk/app.ts).
+    allowExternalNameServices: true
   kubernetesGateway:
     enabled: true
 
