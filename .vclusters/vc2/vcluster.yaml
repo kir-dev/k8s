@@ -1,3 +1,5 @@
+# vcluster.yaml for vc2, a vCluster inside vc-kirdev, currently housing the new GitOps-based cluster
+
 sync:
   fromHost:
     events:

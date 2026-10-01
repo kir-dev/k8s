@@ -1,3 +1,5 @@
+# vcluster.yaml for vc-kirdev, Kir-Dev's root vCluster at KSZK
+
 sync:
   fromHost:
     events:
