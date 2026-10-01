@@ -44,20 +44,6 @@ export default singletonApp({namespace: "argocd"}, (scope) => {
                         repoUrl: environment.k8sRepoUrl,
                         targetRevision: environment.k8sRepoRevision,
                         path: "{{.path.path}}",
-                        plugin: {
-                            env: [
-                                {name: environment.KIRDEV_K8S_ENVIRONMENT, value: environment.environment},
-                                {name: environment.KIRDEV_K8S_REPO_URL, value: environment.k8sRepoUrl},
-                                ...(
-                                    environment.k8sRepoRevision
-                                        ? [{
-                                            name: environment.KIRDEV_K8S_REPO_REVISION,
-                                            value: environment.k8sRepoRevision
-                                        }]
-                                        : []
-                                )
-                            ]
-                        }
                     },
                     destination: {name: "in-cluster"},
                     syncPolicy: {

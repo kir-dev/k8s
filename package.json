@@ -3,9 +3,9 @@
     "scripts": {
         "cdk8s:import": "bun .dev/cdk8s-import.ts",
         "cdk8s:synth": "bun .dev/cdk8s-synth.ts",
-        "local-cluster:up": "KIRDEV_K8S_ENVIRONMENT=Development bun .dev/local-cluster.ts up",
-        "local-cluster:sync": "KIRDEV_K8S_ENVIRONMENT=Development bun .dev/local-cluster.ts sync",
-        "local-cluster:down": "KIRDEV_K8S_ENVIRONMENT=Development bun .dev/local-cluster.ts down",
+        "local-cluster:up": "ARGOCD_APP_SOURCE_REPO_URL=git://git-server.argocd.svc.cluster.local:9418/k8s.git bun .dev/local-cluster.ts up",
+        "local-cluster:sync": "bun .dev/local-cluster.ts sync",
+        "local-cluster:down": "bun .dev/local-cluster.ts down",
         "bootstrap-prod": "bun .dev/bootstrap-prod.ts",
         "renovate": "bun .dev/renovate.ts",
         "typecheck": "tsc --noEmit"
