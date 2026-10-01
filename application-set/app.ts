@@ -5,7 +5,7 @@ import {singletonApp} from "../.dev/cdk8s-utils.ts";
 export default singletonApp({namespace: "argocd"}, (scope) => {
     new ApplicationSet(scope, "application-set", {
         metadata: {
-            name: "application-set",
+            name: "apps",
         },
         spec: {
             goTemplate: true,

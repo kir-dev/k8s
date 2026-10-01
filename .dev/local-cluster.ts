@@ -214,7 +214,7 @@ async function sync(): Promise<void> {
 
     // Refresh Argo CD
     await check(
-        $`kubectl -n argocd annotate applicationset/application-set argocd.argoproj.io/application-set-refresh=true --overwrite`,
+        $`kubectl -n argocd annotate applicationset/apps argocd.argoproj.io/application-set-refresh=true --overwrite`,
     );
     await check($`kubectl -n argocd annotate applications --all argocd.argoproj.io/refresh=normal --overwrite`);
 }
