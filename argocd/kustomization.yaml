@@ -92,7 +92,7 @@ helmCharts:
         resources:
           limits:
             cpu: 150m
-            memory: 200Mi
+            memory: 400Mi
             ephemeral-storage: 400Mi
           requests:
             cpu: 10m
