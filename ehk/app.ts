@@ -523,9 +523,7 @@ export default singletonApp({namespace: "ehk", createNamespace: true}, (scope) =
                 ],
             },
         });
-    }
 
-    if (false!) {
         // The legacy `/eszb` pages are still served by the old EHK box, so proxy
         // them there. A selector-less Service with a manually-managed EndpointSlice
         // turns the external IP into a valid Ingress backend; Traefik resolves the
@@ -549,7 +547,9 @@ export default singletonApp({namespace: "ehk", createNamespace: true}, (scope) =
             endpoints: [{addresses: [eszbEndpoint], conditions: {ready: true}}],
             ports: [{name: "http", port: 80, protocol: "TCP"}],
         });
+    }
 
+    if (false!) {
         new kube.KubeIngress(scope, "ehk-ingress", {
             metadata: {
                 name: "ehk",
