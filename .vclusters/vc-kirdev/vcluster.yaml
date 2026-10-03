@@ -62,29 +62,31 @@ policies:
   resourceQuota:
     enabled: true
     quota:
-      requests.cpu: 100
+      # Sized at ~1.7x the resources actually used in vc-kirdev (measured
+      # 2026-10-01), rounded up. requests.cpu is kept at 40% of limits.cpu.
+      requests.cpu: 40
       limits.cpu: 100
 
-      requests.memory: 80Gi
-      limits.memory: 80Gi
+      requests.memory: 48Gi
+      limits.memory: 100Gi
 
-      requests.ephemeral-storage: 40Gi
-      limits.ephemeral-storage: 100Gi
-      requests.storage: 1000Gi
-      memory-ssd.storageclass.storage.k8s.io/requests.storage: 300Gi
-      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 300Gi
-      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 200Gi
-      memory-hdd.storageclass.storage.k8s.io/requests.storage: 500Gi
+      requests.ephemeral-storage: 20Gi
+      limits.ephemeral-storage: 80Gi
+      requests.storage: 700Gi
+      memory-ssd.storageclass.storage.k8s.io/requests.storage: 350Gi
+      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 100Gi
+      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 100Gi
+      memory-hdd.storageclass.storage.k8s.io/requests.storage: 350Gi
 
       services.nodeports: 17
       services.loadbalancers: 16
 
-      count/endpoints: 400
-      count/pods: 200
-      count/services: 400
-      count/secrets: 400
-      count/configmaps: 400
-      count/persistentvolumeclaims: 200
+      count/endpoints: 240
+      count/pods: 160
+      count/services: 240
+      count/secrets: 450
+      count/configmaps: 200
+      count/persistentvolumeclaims: 120
 
   limitRange:
     enabled: true
