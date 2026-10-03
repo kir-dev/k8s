@@ -62,29 +62,29 @@ policies:
   resourceQuota:
     enabled: true
     quota:
-      requests.cpu: 30
-      limits.cpu: 60
+      requests.cpu: 100
+      limits.cpu: 100
 
-      requests.memory: 60Gi
-      limits.memory: 70Gi
+      requests.memory: 80Gi
+      limits.memory: 80Gi
 
       requests.ephemeral-storage: 40Gi
       limits.ephemeral-storage: 100Gi
-      requests.storage: 600Gi
-      memory-ssd.storageclass.storage.k8s.io/requests.storage: 100Gi
-      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 100Gi
-      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 100Gi # might be wrong (probably is wrong)
+      requests.storage: 1000Gi
+      memory-ssd.storageclass.storage.k8s.io/requests.storage: 300Gi
+      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 300Gi
+      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 200Gi
       memory-hdd.storageclass.storage.k8s.io/requests.storage: 500Gi
 
       services.nodeports: 17
       services.loadbalancers: 16
 
       count/endpoints: 400
-      count/pods: 100
+      count/pods: 200
       count/services: 400
       count/secrets: 400
       count/configmaps: 400
-      count/persistentvolumeclaims: 100
+      count/persistentvolumeclaims: 200
 
   limitRange:
     enabled: true
