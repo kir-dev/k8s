@@ -246,12 +246,20 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 replication: { factor: 1 },
                 storage: {
                     replicas: 1,
+                    // Declared explicitly (like the GarageKey defaults below):
+                    // the operator only defaults these, and ArgoCD would
+                    // otherwise see the GarageCluster as OutOfSync and trip the
+                    // operator's immutable-storage admission webhook.
+                    dataFsync: false,
+                    metadataFsync: false,
                     metadata: {
+                        type: garage.GarageClusterV1Beta2SpecStorageDataType.PERSISTENT_VOLUME_CLAIM,
                         size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                         storageClassName,
                         labels: garageBackupLabels,
                     },
                     data: {
+                        type: garage.GarageClusterV1Beta2SpecStorageDataType.PERSISTENT_VOLUME_CLAIM,
                         size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
                         storageClassName,
                         labels: garageBackupLabels,
