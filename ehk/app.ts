@@ -192,25 +192,26 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // The startup probe below deliberately hits a Payload route so the pod only
     // becomes Ready after that initialization (and thus the migrations) finishes.
 
-    // The backup label is put on every garage resource (not just the PVCs) so
-    // that a single Velero Schedule/Restore label selector covers the whole
-    // stack. The garage-operator does not copy the GarageCluster's labels onto
-    // the PVCs it creates, so the storage roles carry it explicitly too.
-    const garageBackupLabels = { "backup.kir-dev.hu/ehk-garage": "true" };
     const garageLabels = {
         "app.kubernetes.io/name": "ehk-garage",
         "app.kubernetes.io/part-of": "ehk",
-        ...garageBackupLabels,
     };
     const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
 
-    // Set to "recovery" to bootstrap garage from the latest Velero backup
+    // VolSync restores a snapshot by creating a new volume from it, so it needs
+    // an explicit VolumeSnapshotClass: the host's class is synced into the
+    // vCluster but is not marked as the default.
+    const volumeSnapshotClassName =
+        environment.environment == "Production"
+            ? // TODO: confirm the Ceph RBD VolumeSnapshotClass name KSZK provides.
+              "csi-rbdplugin-snapclass"
+            : "csi-hostpath-snapclass";
+
+    // Set to "recovery" to bootstrap garage from the latest VolSync backup
     // instead of creating it empty, then set it back to "init" once the restore
-    // has completed. This is the Velero equivalent of `startsch/app.ts`'s CNPG
+    // has completed. This is the restic equivalent of `startsch/app.ts`'s CNPG
     // `bootstrap.recovery` switch.
     const garageBootstrap: "init" | "recovery" = "init";
-    // Set to false while restoring from a backup.
-    const enableGarageBackup = true;
 
     if (garageBootstrap === "init") {
         // Static admin bootstrap token. The operator uses it to drive Garage's
@@ -243,12 +244,10 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     metadata: {
                         size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                         storageClassName,
-                        labels: garageBackupLabels,
                     },
                     data: {
                         size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
                         storageClassName,
-                        labels: garageBackupLabels,
                     },
                     // A single-node cluster cannot tolerate any disruption anyway,
                     // and a PDB would block draining the node.
@@ -324,91 +323,88 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         });
     }
 
-    // Velero backups of the garage volumes into Backblaze B2. The volume data
-    // is moved into B2 by the CSI Snapshot Data Mover (`snapshotMoveData`);
-    // a plain CSI snapshot would only live in the storage backend (Ceph in
-    // prod), which is not an independent backup.
-    if (enableGarageBackup) {
-        // The BackupStorageLocation (and its credential Secret) must live in the
-        // Velero namespace, so they are declared here but namespaced to `velero`.
-        // Velero writes under the `velero` prefix of the shared bucket; Barman uses
-        // the bucket root (see the ObjectStore above).
-        new kube.KubeSecret(scope, "ehk-velero-backups-secret", {
+    // Back up the garage volumes (data + metadata) to Backblaze B2 with VolSync
+    // + restic, one repository per PVC (VolSync does not support shared repos).
+    // Each backup takes a CSI snapshot of the PVC (`copyMethod: Snapshot`) and
+    // restics it off-site; a restore writes a restic snapshot back into a PVC.
+    //
+    // The PVC names are the ones the garage-operator's StatefulSet creates:
+    // `<volumeClaimTemplate>-<statefulset>-<ordinal>` = data-...-0-0 / metadata-...-0-0.
+    const garageVolumes = [
+        { name: "data", pvc: "data-ehk-garage-storage-0-0", size: "5Gi" },
+        { name: "metadata", pvc: "metadata-ehk-garage-storage-0-0", size: "1Gi" },
+    ] as const;
+
+    for (const volume of garageVolumes) {
+        const repository = `garage-${volume.name}-backup`;
+        // The connection info is filled in manually (see README); only the
+        // (non-secret) repository URL is declared here.
+        new kube.KubeSecret(scope, `${repository}-secret`, {
             metadata: {
-                name: "ehk-backups",
-                namespace: "velero",
+                name: repository,
                 annotations: {
-                    // The credentials are filled in manually; keep ArgoCD from
-                    // pruning the extra `data` key it doesn't declare.
+                    // Keep ArgoCD from pruning the manually-added keys
+                    // (RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).
                     "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
                 },
             },
-            // Set manually (same Backblaze B2 application key as
-            // `ehk-backups-secrets`, in Velero's credentials-file format):
-            // stringData:
-            //   cloud: |
-            //     [default]
-            //     aws_access_key_id=
-            //     aws_secret_access_key=
-        });
-
-        new ApiObject(scope, "ehk-velero-backup-location", {
-            apiVersion: "velero.io/v1",
-            kind: "BackupStorageLocation",
-            metadata: { name: "ehk", namespace: "velero" },
-            spec: {
-                provider: "aws",
-                objectStorage: { bucket: backupBucket, prefix: "velero" },
-                credential: { name: "ehk-backups", key: "cloud" },
-                config: {
-                    region: backupRegion,
-                    s3Url: backupEndpoint,
-                    s3ForcePathStyle: "true",
-                    // Backblaze B2 needs the AWS SDK v2 checksum middleware disabled.
-                    checksumAlgorithm: "",
-                },
+            stringData: {
+                RESTIC_REPOSITORY: `s3:${backupEndpoint}/${backupBucket}/restic/${volume.pvc}`,
+                AWS_DEFAULT_REGION: backupRegion,
             },
+            // Set manually:
+            // stringData:
+            //   RESTIC_PASSWORD:
+            //   AWS_ACCESS_KEY_ID:
+            //   AWS_SECRET_ACCESS_KEY:
         });
 
-        // While recovering, Velero restores garage (its CRs and its PVCs, with
-        // the volume data) from the latest backup of the `ehk-garage` schedule.
-        // Once the restore has completed, set `garageBootstrap` back to "init";
-        // ArgoCD then adopts the restored resources.
         if (garageBootstrap === "init") {
-            // The Schedule must also live in the Velero namespace (Velero only
-            // reconciles Backup/Schedule resources there); `includedNamespaces`
-            // still selects the ehk namespace below.
-            new ApiObject(scope, "ehk-garage-backup", {
-                apiVersion: "velero.io/v1",
-                kind: "Schedule",
-                metadata: { name: "ehk-garage", namespace: "velero" },
+            new ApiObject(scope, `${repository}-source`, {
+                apiVersion: "volsync.backube/v1alpha1",
+                kind: "ReplicationSource",
+                metadata: { name: repository },
                 spec: {
-                    schedule: "30 3 * * *",
-                    template: {
-                        includedNamespaces: ["ehk"],
-                        labelSelector: { matchLabels: garageBackupLabels },
-                        storageLocation: "ehk",
-                        snapshotVolumes: true,
-                        // Move the snapshot data into the BSL (Backblaze B2)
-                        // instead of leaving it in the storage backend.
-                        snapshotMoveData: true,
-                        defaultVolumesToFsBackup: false,
-                        ttl: "720h",
+                    sourcePVC: volume.pvc,
+                    trigger: { schedule: "45 3 * * *" },
+                    restic: {
+                        repository,
+                        copyMethod: "Snapshot",
+                        volumeSnapshotClassName,
+                        retain: { daily: 7, weekly: 4, monthly: 6 },
+                        pruneIntervalDays: 7,
                     },
                 },
             });
         } else {
-            new ApiObject(scope, "ehk-garage-restore", {
-                apiVersion: "velero.io/v1",
-                kind: "Restore",
-                metadata: { name: "ehk-garage-recovery", namespace: "velero" },
+            // While recovering the operator must not create the PVCs (it would
+            // create them empty first), so declare them here for VolSync to
+            // restore into. The `Prune=false` annotation keeps ArgoCD from
+            // deleting the restored PVCs when this switch goes back to "init"
+            // and the operator's StatefulSet adopts them.
+            new kube.KubePersistentVolumeClaim(scope, `${repository}-pvc`, {
+                metadata: {
+                    name: volume.pvc,
+                    annotations: { "argocd.argoproj.io/sync-options": "Prune=false" },
+                },
                 spec: {
-                    // Restores the most recent backup created by the schedule.
-                    scheduleName: "ehk-garage",
-                    includedNamespaces: ["ehk"],
-                    labelSelector: { matchLabels: garageBackupLabels },
-                    restorePVs: true,
-                    existingResourcePolicy: "update",
+                    accessModes: ["ReadWriteOnce"],
+                    storageClassName,
+                    resources: { requests: { storage: kube.Quantity.fromString(volume.size) } },
+                },
+            });
+
+            new ApiObject(scope, `${repository}-destination`, {
+                apiVersion: "volsync.backube/v1alpha1",
+                kind: "ReplicationDestination",
+                metadata: { name: repository },
+                spec: {
+                    trigger: { manual: "restore-once" },
+                    restic: {
+                        repository,
+                        destinationPVC: volume.pvc,
+                        copyMethod: "Direct",
+                    },
                 },
             });
         }

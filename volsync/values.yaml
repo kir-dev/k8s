@@ -1,0 +1,12 @@
+# https://github.com/backube/volsync/blob/main/helm/volsync/values.yaml
+
+# Every pod in this repo must set requests/limits (see README).
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    ephemeral-storage: 0
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+    ephemeral-storage: 500Mi

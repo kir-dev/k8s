@@ -1,0 +1,26 @@
+# https://volsync.readthedocs.io
+# https://artifacthub.io/packages/helm/backube-helm-charts/volsync
+# https://github.com/backube/volsync/tree/main/helm/volsync
+#
+# Backs up PVC contents to object storage (Backblaze B2) with restic. Unlike
+# Velero's CSI data mover it never creates a pre-provisioned "exposer" snapshot,
+# so it works through nested vClusters: it uses the CSI snapshot of the source
+# PVC (`copyMethod: Snapshot`) and then restores it into a new volume, both of
+# which the vCluster snapshot sync handles fine.
+#
+# The per-app repositories and ReplicationSources live in the app itself (e.g.
+# `ehk/app.ts`).
+
+namespace: volsync-system
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+  - name: volsync
+    repo: https://backube.github.io/helm-charts/
+    version: 0.16.0
+    releaseName: volsync
+    namespace: volsync-system
+    includeCRDs: true
+    valuesFile: values.yaml
