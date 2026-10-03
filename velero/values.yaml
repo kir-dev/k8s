@@ -34,8 +34,28 @@ backupsEnabled: false
 credentials:
   useSecret: false
 
-# CSI snapshots don't need the node-agent (that's for file-system backups).
-deployNodeAgent: false
+# The node-agent carries the built-in data mover. It is required both for
+# file-system backups and for CSI Snapshot Data Movement, which is what moves
+# the volume *data* into the BackupStorageLocation (plain CSI snapshots only
+# keep the data in the storage backend).
+deployNodeAgent: true
+
+nodeAgent:
+  # The data mover reads the volume from a CSI snapshot, so it never needs the
+  # kubelet pod directory (that is only for file-system backups, which don't
+  # work in vCluster anyway). Dropping the hostPath keeps the DaemonSet smaller.
+  disableHostPath: true
+  # Every pod in this repo must set requests/limits (see README), and the
+  # node-agent would otherwise be BestEffort-only.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      ephemeral-storage: 0
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+      ephemeral-storage: 500Mi
 
 resources:
   requests:

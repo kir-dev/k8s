@@ -1,8 +1,8 @@
-import {ApplicationSet} from "../imports/argoproj.io";
+import { ApplicationSet } from "../imports/argoproj.io";
 import * as environment from "../.dev/environment.ts";
-import {singletonApp} from "../.dev/cdk8s-utils.ts";
+import { singletonApp } from "../.dev/cdk8s-utils.ts";
 
-export default singletonApp({namespace: "argocd"}, (scope) => {
+export default singletonApp({ namespace: "argocd" }, (scope) => {
     new ApplicationSet(scope, "application-set", {
         metadata: {
             name: "apps",
@@ -25,8 +25,6 @@ export default singletonApp({namespace: "argocd"}, (scope) => {
                                 path: ".*",
                                 exclude: true,
                             },
-                            // Disable velero until we have Volume Snapshots in prod
-                            {path: "velero", exclude: true},
                         ],
                     },
                 },
@@ -45,7 +43,16 @@ export default singletonApp({namespace: "argocd"}, (scope) => {
                         targetRevision: environment.k8sRepoRevision,
                         path: "{{.path.path}}",
                     },
-                    destination: {name: "in-cluster"},
+                    destination: { name: "in-cluster" },
+                    // The backup credentials are filled in manually into the
+                    // Secret `data`; keep ArgoCD from pruning/reverting them.
+                    ignoreDifferences: [
+                        {
+                            group: "",
+                            kind: "Secret",
+                            jsonPointers: ["/data"],
+                        },
+                    ],
                     syncPolicy: {
                         automated: {
                             prune: true,
