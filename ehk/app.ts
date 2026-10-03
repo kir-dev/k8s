@@ -192,9 +192,14 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // The startup probe below deliberately hits a Payload route so the pod only
     // becomes Ready after that initialization (and thus the migrations) finishes.
 
+    // The garage-operator treats the storage spec (its labels included) as
+    // immutable while the cluster is live, so this label must stay stable; it
+    // also tags the resources the operator/StatefulSet manage.
+    const garageBackupLabels = { "backup.kir-dev.hu/ehk-garage": "true" };
     const garageLabels = {
         "app.kubernetes.io/name": "ehk-garage",
         "app.kubernetes.io/part-of": "ehk",
+        ...garageBackupLabels,
     };
     const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
 
@@ -244,10 +249,12 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     metadata: {
                         size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                         storageClassName,
+                        labels: garageBackupLabels,
                     },
                     data: {
                         size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
                         storageClassName,
+                        labels: garageBackupLabels,
                     },
                     // A single-node cluster cannot tolerate any disruption anyway,
                     // and a PDB would block draining the node.
