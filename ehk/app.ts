@@ -253,7 +253,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     dataFsync: false,
                     metadataFsync: false,
                     metadata: {
-                        type: garage.GarageClusterV1Beta2SpecStorageDataType.PERSISTENT_VOLUME_CLAIM,
+                        type: garage.GarageClusterV1Beta2SpecStorageMetadataType.PERSISTENT_VOLUME_CLAIM,
                         size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                         storageClassName,
                         labels: garageBackupLabels,
