@@ -216,127 +216,127 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // instead of creating it empty, then set it back to "init" once the restore
     // has completed. This is the restic equivalent of `startsch/app.ts`'s CNPG
     // `bootstrap.recovery` switch.
-    const garageBootstrap: "init" | "recovery" = "recovery";
+    const garageBootstrap = "recovery" as "init" | "recovery";
 
-    if (garageBootstrap === "init") {
-        // Static admin bootstrap token. The operator uses it to drive Garage's
-        // Admin API; GarageAdminToken writes it into the `ehk-garage-admin` secret
-        // (key `admin-token`), which the GarageCluster below selects. The sync-wave
-        // makes ArgoCD create the secret before the cluster that consumes it.
-        new garage.GarageAdminTokenV1Beta1(scope, "ehk-garage-admin", {
-            metadata: {
-                name: "ehk-garage-admin",
-                labels: garageLabels,
-                annotations: { "argocd.argoproj.io/sync-wave": "-30" },
-            },
-            spec: {
-                clusterRef: { name: "ehk-garage" },
-                secretTemplate: { name: "ehk-garage-admin", tokenKey: "admin-token" },
-            },
-        });
+    // Static admin bootstrap token. The operator uses it to drive Garage's
+    // Admin API; GarageAdminToken writes it into the `ehk-garage-admin` secret
+    // (key `admin-token`), which the GarageCluster below selects. The sync-wave
+    // makes ArgoCD create the secret before the cluster that consumes it.
+    new garage.GarageAdminTokenV1Beta1(scope, "ehk-garage-admin", {
+        metadata: {
+            name: "ehk-garage-admin",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-30" },
+        },
+        spec: {
+            clusterRef: { name: "ehk-garage" },
+            secretTemplate: { name: "ehk-garage-admin", tokenKey: "admin-token" },
+        },
+    });
 
-        new garage.GarageClusterV1Beta2(scope, "ehk-garage", {
-            metadata: {
-                name: "ehk-garage",
-                labels: garageLabels,
-                annotations: { "argocd.argoproj.io/sync-wave": "-20" },
-            },
-            spec: {
-                zone: "default",
-                replication: { factor: 1 },
-                storage: {
-                    replicas: 1,
-                    // Declared explicitly (like the GarageKey defaults below):
-                    // the operator only defaults these, and ArgoCD would
-                    // otherwise see the GarageCluster as OutOfSync and trip the
-                    // operator's immutable-storage admission webhook.
-                    dataFsync: false,
-                    metadataFsync: false,
-                    metadata: {
-                        type: garage.GarageClusterV1Beta2SpecStorageMetadataType.PERSISTENT_VOLUME_CLAIM,
-                        size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
-                        storageClassName,
-                        labels: garageBackupLabels,
+    new garage.GarageClusterV1Beta2(scope, "ehk-garage", {
+        metadata: {
+            name: "ehk-garage",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-20" },
+        },
+        spec: {
+            zone: "default",
+            replication: { factor: 1 },
+            storage: {
+                // During recovery the operator-managed StatefulSet/PVC group
+                // is disabled (`replicas: 0`) so it cannot create the PVCs
+                // empty before VolSync restores into them. The CRs stay in
+                // place; only the group is toggled.
+                replicas: garageBootstrap === "recovery" ? 0 : 1,
+                // Declared explicitly (like the GarageKey defaults below):
+                // the operator only defaults these, and ArgoCD would
+                // otherwise see the GarageCluster as OutOfSync and trip the
+                // operator's immutable-storage admission webhook.
+                dataFsync: false,
+                metadataFsync: false,
+                metadata: {
+                    type: garage.GarageClusterV1Beta2SpecStorageMetadataType.PERSISTENT_VOLUME_CLAIM,
+                    size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
+                    storageClassName,
+                    labels: garageBackupLabels,
+                },
+                data: {
+                    type: garage.GarageClusterV1Beta2SpecStorageDataType.PERSISTENT_VOLUME_CLAIM,
+                    size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
+                    storageClassName,
+                    labels: garageBackupLabels,
+                },
+                // A single-node cluster cannot tolerate any disruption anyway,
+                // and a PDB would block draining the node.
+                podDisruptionBudget: { enabled: false },
+                resources: {
+                    requests: {
+                        cpu: garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("50m"),
+                        memory: garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("128Mi"),
+                        "ephemeral-storage": garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("0"),
                     },
-                    data: {
-                        type: garage.GarageClusterV1Beta2SpecStorageDataType.PERSISTENT_VOLUME_CLAIM,
-                        size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
-                        storageClassName,
-                        labels: garageBackupLabels,
-                    },
-                    // A single-node cluster cannot tolerate any disruption anyway,
-                    // and a PDB would block draining the node.
-                    podDisruptionBudget: { enabled: false },
-                    resources: {
-                        requests: {
-                            cpu: garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("50m"),
-                            memory: garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("128Mi"),
-                            "ephemeral-storage":
-                                garage.GarageClusterV1Beta2SpecStorageResourcesRequests.fromString("0"),
-                        },
-                        limits: {
-                            cpu: garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("500m"),
-                            memory: garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("512Mi"),
-                            "ephemeral-storage":
-                                garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("500Mi"),
-                        },
+                    limits: {
+                        cpu: garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("500m"),
+                        memory: garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("512Mi"),
+                        "ephemeral-storage": garage.GarageClusterV1Beta2SpecStorageResourcesLimits.fromString("500Mi"),
                     },
                 },
-                network: {
-                    rpcBindPort: 3901,
-                    service: { type: garage.GarageClusterV1Beta2SpecNetworkServiceType.CLUSTER_IP },
-                },
-                s3Api: { bindPort: 3900, region: "us-east-1" },
-                admin: {
-                    bindPort: 3903,
-                    adminTokenSecretRef: { name: "ehk-garage-admin", key: "admin-token" },
-                },
             },
-        });
+            network: {
+                rpcBindPort: 3901,
+                service: { type: garage.GarageClusterV1Beta2SpecNetworkServiceType.CLUSTER_IP },
+            },
+            s3Api: { bindPort: 3900, region: "us-east-1" },
+            admin: {
+                bindPort: 3903,
+                adminTokenSecretRef: { name: "ehk-garage-admin", key: "admin-token" },
+            },
+        },
+    });
 
-        new garage.GarageBucketV1Beta1(scope, "ehk-media", {
-            metadata: {
-                name: "ehk-media",
-                labels: garageLabels,
-                annotations: { "argocd.argoproj.io/sync-wave": "-15" },
-            },
-            spec: { clusterRef: { name: "ehk-garage" }, globalAlias: "ehk-media" },
-        });
+    new garage.GarageBucketV1Beta1(scope, "ehk-media", {
+        metadata: {
+            name: "ehk-media",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-15" },
+        },
+        spec: { clusterRef: { name: "ehk-garage" }, globalAlias: "ehk-media" },
+    });
 
-        // S3 credentials. The operator generates the key pair into the
-        // `ehk-garage-s3` secret (keys `access-key-id`/`secret-access-key`), which
-        // the app mounts, and grants it read/write on the `ehk-media` bucket.
-        new garage.GarageKeyV1Beta1(scope, "ehk-media-key", {
-            metadata: {
-                name: "ehk-media",
-                labels: garageLabels,
-                annotations: { "argocd.argoproj.io/sync-wave": "-10" },
+    // S3 credentials. The operator generates the key pair into the
+    // `ehk-garage-s3` secret (keys `access-key-id`/`secret-access-key`), which
+    // the app mounts, and grants it read/write on the `ehk-media` bucket.
+    new garage.GarageKeyV1Beta1(scope, "ehk-media-key", {
+        metadata: {
+            name: "ehk-media",
+            labels: garageLabels,
+            annotations: { "argocd.argoproj.io/sync-wave": "-10" },
+        },
+        spec: {
+            clusterRef: { name: "ehk-garage" },
+            name: "ehk-media",
+            // These are the operator's defaults. Declaring them explicitly keeps
+            // ArgoCD from reporting the resource as OutOfSync forever, since the
+            // webhook writes them back into the spec.
+            neverExpires: false,
+            secretTemplate: {
+                name: "ehk-garage-s3",
+                type: "Opaque",
+                accessKeyIdKey: "access-key-id",
+                secretAccessKeyKey: "secret-access-key",
+                endpointKey: "endpoint",
+                hostKey: "host",
+                schemeKey: "scheme",
+                regionKey: "region",
+                bucketNameKey: "bucket",
+                websiteUrlKey: "website-url",
+                credentialsFileKey: "credentials",
+                credentialsFileProfile: "default",
             },
-            spec: {
-                clusterRef: { name: "ehk-garage" },
-                name: "ehk-media",
-                // These are the operator's defaults. Declaring them explicitly keeps
-                // ArgoCD from reporting the resource as OutOfSync forever, since the
-                // webhook writes them back into the spec.
-                neverExpires: false,
-                secretTemplate: {
-                    name: "ehk-garage-s3",
-                    type: "Opaque",
-                    accessKeyIdKey: "access-key-id",
-                    secretAccessKeyKey: "secret-access-key",
-                    endpointKey: "endpoint",
-                    hostKey: "host",
-                    schemeKey: "scheme",
-                    regionKey: "region",
-                    bucketNameKey: "bucket",
-                    websiteUrlKey: "website-url",
-                    credentialsFileKey: "credentials",
-                    credentialsFileProfile: "default",
-                },
-                bucketPermissions: [{ bucketRef: { name: "ehk-media" }, read: true, write: true, owner: false }],
-            },
-        });
-    }
+            bucketPermissions: [{ bucketRef: { name: "ehk-media" }, read: true, write: true, owner: false }],
+        },
+    });
 
     // Back up the garage volumes (data + metadata) to Backblaze B2 with VolSync
     // + restic, one repository per PVC (VolSync does not support shared repos).
