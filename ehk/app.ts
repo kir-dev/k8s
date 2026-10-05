@@ -257,15 +257,14 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     storageClassName,
                     labels: garageBackupLabels,
                     // On recovery the operator creates this PVC from the
-                    // latest VolSync restore (via its Volume Populator)
-                    // instead of an empty one, so the PVC stays
-                    // operator-owned and gets adopted by the StatefulSet.
+                    // restored CSI snapshot instead of an empty one, so the PVC
+                    // stays operator-owned (see the recovery branch below).
                     dataSourceRef:
                         garageBootstrap === "recovery"
                             ? {
-                                  apiGroup: "volsync.backube",
-                                  kind: "ReplicationDestination",
-                                  name: "garage-metadata-backup",
+                                  apiGroup: "snapshot.storage.k8s.io",
+                                  kind: "VolumeSnapshot",
+                                  name: "garage-metadata-restore-snap",
                               }
                             : undefined,
                 },
@@ -277,9 +276,9 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     dataSourceRef:
                         garageBootstrap === "recovery"
                             ? {
-                                  apiGroup: "volsync.backube",
-                                  kind: "ReplicationDestination",
-                                  name: "garage-data-backup",
+                                  apiGroup: "snapshot.storage.k8s.io",
+                                  kind: "VolumeSnapshot",
+                                  name: "garage-data-restore-snap",
                               }
                             : undefined,
                 },
@@ -357,14 +356,27 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // Back up the garage volumes (data + metadata) to Backblaze B2 with VolSync
     // + restic, one repository per PVC (VolSync does not support shared repos).
     // Each backup takes a CSI snapshot of the PVC (`copyMethod: Snapshot`) and
-    // restics it off-site. On recovery the operator creates the PVCs from the
-    // ReplicationDestinations (below) via VolSync's Volume Populator.
+    // restics it off-site. On recovery VolSync restores into a dedicated PVC
+    // and snapshots it under a fixed name; the operator then creates its own
+    // PVC from that VolumeSnapshot (the GarageCluster's `dataSourceRef`).
     //
     // The PVC names are the ones the garage-operator's StatefulSet creates:
     // `<volumeClaimTemplate>-<statefulset>-<ordinal>` = data-...-0-0 / metadata-...-0-0.
     const garageVolumes = [
-        { name: "data", pvc: "data-ehk-garage-storage-0-0", size: "5Gi" },
-        { name: "metadata", pvc: "metadata-ehk-garage-storage-0-0", size: "1Gi" },
+        {
+            name: "data",
+            pvc: "data-ehk-garage-storage-0-0",
+            size: "5Gi",
+            restorePvc: "garage-data-restore",
+            restoreSnapshot: "garage-data-restore-snap",
+        },
+        {
+            name: "metadata",
+            pvc: "metadata-ehk-garage-storage-0-0",
+            size: "1Gi",
+            restorePvc: "garage-metadata-restore",
+            restoreSnapshot: "garage-metadata-restore-snap",
+        },
     ] as const;
 
     for (const volume of garageVolumes) {
@@ -409,12 +421,24 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 },
             });
         } else {
-            // On recovery the operator creates the PVCs from this
-            // ReplicationDestination via VolSync's Volume Populator (see the
-            // GarageCluster's `dataSourceRef`), so the PVCs stay operator-owned.
-            // The populator needs the destination to produce a VolumeSnapshot,
-            // hence `copyMethod: Snapshot`: VolSync restores into its own volume,
-            // snapshots it, and the populator clones the garage PVC from that.
+            // On recovery: restore the repo into a dedicated PVC, then let
+            // VolSync snapshot it under a fixed name (the destination PVC's
+            // `volsync.backube/snapname` annotation pins the VolumeSnapshot
+            // name). The GarageCluster's `dataSourceRef` points at that
+            // snapshot, so the operator provisions its own PVC from the CSI
+            // snapshot — which vCluster syncs correctly, unlike the populator.
+            new kube.KubePersistentVolumeClaim(scope, `${repository}-restore-pvc`, {
+                metadata: {
+                    name: volume.restorePvc,
+                    annotations: { "volsync.backube/snapname": volume.restoreSnapshot },
+                },
+                spec: {
+                    accessModes: ["ReadWriteOnce"],
+                    storageClassName,
+                    resources: { requests: { storage: kube.Quantity.fromString(volume.size) } },
+                },
+            });
+
             new ApiObject(scope, `${repository}-destination`, {
                 apiVersion: "volsync.backube/v1alpha1",
                 kind: "ReplicationDestination",
@@ -423,11 +447,9 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     trigger: { manual: "restore-once" },
                     restic: {
                         repository,
+                        destinationPVC: volume.restorePvc,
                         copyMethod: "Snapshot",
                         volumeSnapshotClassName,
-                        capacity: volume.size,
-                        accessModes: ["ReadWriteOnce"],
-                        storageClassName,
                     },
                 },
             });
