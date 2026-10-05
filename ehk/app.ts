@@ -216,7 +216,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // instead of creating it empty, then set it back to "init" once the restore
     // has completed. This is the restic equivalent of `startsch/app.ts`'s CNPG
     // `bootstrap.recovery` switch.
-    const garageBootstrap = "recovery" as "init" | "recovery";
+    const garageBootstrap = "init" as "init" | "recovery";
 
     // Static admin bootstrap token. The operator uses it to drive Garage's
     // Admin API; GarageAdminToken writes it into the `ehk-garage-admin` secret
