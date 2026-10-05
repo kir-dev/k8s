@@ -244,11 +244,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             zone: "default",
             replication: { factor: 1 },
             storage: {
-                // During recovery the operator-managed StatefulSet/PVC group
-                // is disabled (`replicas: 0`) so it cannot create the PVCs
-                // empty before VolSync restores into them. The CRs stay in
-                // place; only the group is toggled.
-                replicas: garageBootstrap === "recovery" ? 0 : 1,
+                replicas: 1,
                 // Declared explicitly (like the GarageKey defaults below):
                 // the operator only defaults these, and ArgoCD would
                 // otherwise see the GarageCluster as OutOfSync and trip the
@@ -260,12 +256,32 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     size: garage.GarageClusterV1Beta2SpecStorageMetadataSize.fromString("1Gi"),
                     storageClassName,
                     labels: garageBackupLabels,
+                    // On recovery the operator creates this PVC from the
+                    // latest VolSync restore (via its Volume Populator)
+                    // instead of an empty one, so the PVC stays
+                    // operator-owned and gets adopted by the StatefulSet.
+                    dataSourceRef:
+                        garageBootstrap === "recovery"
+                            ? {
+                                  apiGroup: "volsync.backube",
+                                  kind: "ReplicationDestination",
+                                  name: "garage-metadata-backup",
+                              }
+                            : undefined,
                 },
                 data: {
                     type: garage.GarageClusterV1Beta2SpecStorageDataType.PERSISTENT_VOLUME_CLAIM,
                     size: garage.GarageClusterV1Beta2SpecStorageDataSize.fromString("5Gi"),
                     storageClassName,
                     labels: garageBackupLabels,
+                    dataSourceRef:
+                        garageBootstrap === "recovery"
+                            ? {
+                                  apiGroup: "volsync.backube",
+                                  kind: "ReplicationDestination",
+                                  name: "garage-data-backup",
+                              }
+                            : undefined,
                 },
                 // A single-node cluster cannot tolerate any disruption anyway,
                 // and a PDB would block draining the node.
@@ -341,7 +357,8 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // Back up the garage volumes (data + metadata) to Backblaze B2 with VolSync
     // + restic, one repository per PVC (VolSync does not support shared repos).
     // Each backup takes a CSI snapshot of the PVC (`copyMethod: Snapshot`) and
-    // restics it off-site; a restore writes a restic snapshot back into a PVC.
+    // restics it off-site. On recovery the operator creates the PVCs from the
+    // ReplicationDestinations (below) via VolSync's Volume Populator.
     //
     // The PVC names are the ones the garage-operator's StatefulSet creates:
     // `<volumeClaimTemplate>-<statefulset>-<ordinal>` = data-...-0-0 / metadata-...-0-0.
@@ -392,23 +409,12 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 },
             });
         } else {
-            // While recovering the operator must not create the PVCs (it would
-            // create them empty first), so declare them here for VolSync to
-            // restore into. The `Prune=false` annotation keeps ArgoCD from
-            // deleting the restored PVCs when this switch goes back to "init"
-            // and the operator's StatefulSet adopts them.
-            new kube.KubePersistentVolumeClaim(scope, `${repository}-pvc`, {
-                metadata: {
-                    name: volume.pvc,
-                    annotations: { "argocd.argoproj.io/sync-options": "Prune=false" },
-                },
-                spec: {
-                    accessModes: ["ReadWriteOnce"],
-                    storageClassName,
-                    resources: { requests: { storage: kube.Quantity.fromString(volume.size) } },
-                },
-            });
-
+            // On recovery the operator creates the PVCs from this
+            // ReplicationDestination via VolSync's Volume Populator (see the
+            // GarageCluster's `dataSourceRef`), so the PVCs stay operator-owned.
+            // The populator needs the destination to produce a VolumeSnapshot,
+            // hence `copyMethod: Snapshot`: VolSync restores into its own volume,
+            // snapshots it, and the populator clones the garage PVC from that.
             new ApiObject(scope, `${repository}-destination`, {
                 apiVersion: "volsync.backube/v1alpha1",
                 kind: "ReplicationDestination",
@@ -417,8 +423,11 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                     trigger: { manual: "restore-once" },
                     restic: {
                         repository,
-                        destinationPVC: volume.pvc,
-                        copyMethod: "Direct",
+                        copyMethod: "Snapshot",
+                        volumeSnapshotClassName,
+                        capacity: volume.size,
+                        accessModes: ["ReadWriteOnce"],
+                        storageClassName,
                     },
                 },
             });
