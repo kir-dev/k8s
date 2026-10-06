@@ -23,7 +23,7 @@ garage-operator `0.7.12`.
   - a `ReplicationDestination` + restore PVC when `garageBootstrap === "recovery"`
   - the `GarageCluster.storage.{data,metadata}.dataSourceRef` pointing at a fixed-name
     `VolumeSnapshot` in recovery mode.
-- **Velero was removed** — see §4.
+- **Velero was removed** — see §3.
 
 ## 2. How backups work
 
@@ -42,8 +42,9 @@ Repositories (one per PVC — VolSync does not support shared repos):
 
 Secrets (`garage-{data,metadata}-backup`): `RESTIC_REPOSITORY` and
 `AWS_DEFAULT_REGION` are declared in Git; `RESTIC_PASSWORD`, `AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY` are **manual** (secret manager TBD). ArgoCD is told to
-ignore Secret `data` (see §7).
+`AWS_SECRET_ACCESS_KEY` are **manual** (secret manager TBD). The secret carries
+`argocd.argoproj.io/compare-options: IgnoreExtraneous` so ArgoCD does not prune
+those manual keys (see §7).
 
 Verified: both sources report `Successful`; the restic repos and snapshots are in
 B2; a restore reproduces the files. The **database is a separate pipeline**
@@ -200,8 +201,11 @@ Notes:
 
 - ArgoCD only sees **committed, pushed** work. `bun run local-cluster:sync`
   force-pushes `HEAD` to the in-cluster git server; uncommitted changes are invisible.
-- ApplicationSet needs `ignoreDifferences` on Secret `/data` + `ApplyOutOfSyncOnly=true`
-  so manually-filled secrets (restic password/keys) aren't pruned/reverted.
+- Manually-filled Secret keys (restic password/credentials) survive because
+  ArgoCD's `ServerSideApply=true` only owns fields it declares; the restic
+  secrets additionally carry `compare-options: IgnoreExtraneous` (same as
+  `ehk-backups-secrets`). No global `ignoreDifferences` on Secret `/data` is
+  needed (that would suppress drift detection for every Secret in every app).
 - The cdk8s CMP sidecar (`cmp-cdk8s`) can **segfault on startup** (exit 139) →
   repo-server `CrashLoopBackOff` → the ApplicationSet can't generate apps → no
   Applications at all. Deleting the `argocd-repo-server` pod recovers it.
@@ -228,6 +232,13 @@ Steps:
 5. You are now in the recovery topology (`dataSourceRef` retained); returning to a
    plain `init` layout needs the `GarageCluster` recreated (see §5).
 
+Ordering: recovery resources carry sync-waves before the `GarageCluster`
+(restic secret `-26` → restore PVC/`ReplicationSource` `-25` →
+`ReplicationDestination` `-24` → cluster `-20`), but the `VolumeSnapshot` only
+appears once the RD has *finished* restoring. Sync-waves can't express that
+async dependency, so the operator's PVC creation will fail and retry until the
+snapshot is `readyToUse`; expect the app to sit `Progressing` in the meantime.
+
 ## 9. Open questions / next steps
 
 - **Do `GarageKey`/`GarageBucket` support predefined ids/secrets?** If yes, the
@@ -242,13 +253,44 @@ Steps:
 
 ## 10. File map
 
+Changed by this PR:
+
 - `volsync/{kustomization,namespace,values}.yaml` — VolSync install.
 - `ehk/app.ts` — restic secrets, `ReplicationSource`s, `garageBootstrap` switch,
   `GarageCluster.storage.*.dataSourceRef`, recovery RD/restore PVCs.
-- `application-set/app.ts` — Secret `data` `ignoreDifferences`.
+- `application-set/app.ts` — removed the `velero` path exclusion.
+- Removed: `velero/` (see §3).
+
+Already on `main` (snapshot plumbing this PR builds on):
+
 - `.dev/local-cluster.ts` — installs external-snapshotter + `csi-driver-host-path`
-  on the host and labels the snapshot class for Velero/VolSync.
+  on the host and labels the snapshot class.
 - `.dev/dev-storage-classes.yaml` — `memory-ssd` → `hostpath.csi.k8s.io`.
 - `.vclusters/vc1/vcluster.yaml`, `.vclusters/vc2/vcluster.yaml` — snapshot +
   `persistentVolumes` sync (both layers).
-- Removed: `velero/` (see §3).
+
+## 11. References
+
+- Garage operator recovery: <https://rajsinghtech.github.io/garage-operator/operations/maintenance-and-recovery/#gitops-volume-restore-auto-group>
+- VolSync restic mover: <https://volsync.readthedocs.io/en/stable/usage/restic/index.html>
+- VolSync volume populator: <https://volsync.readthedocs.io/en/stable/usage/volume-populator/index.html>
+- vCluster volume-snapshot sync (re-added after 0.36): <https://www.vcluster.com/docs/vcluster/configure/vcluster-yaml/sync/to-host/storage/volume-snapshots>
+- PVC `dataSourceRef`: <https://kubernetes.io/docs/reference/kubernetes-api/core/persistent-volume-claim-v1/#PersistentVolumeClaimSpec>
+
+## 12. Human notes / verdicts
+
+- **Goal:** a CNPG/Barman-like declarative backup+restore story for S3. Garage has
+  no application-level backup, so CSI snapshots moved off-site are the next best
+  consistency guarantee after a restore; file-system backup would be worse.
+- Off-site backups are a hard requirement, which is what ruled Velero CSI
+  snapshots out.
+- **garage-operator force-delete:** in dev, recreating the cluster
+  (`local-cluster:down && up`) is the accepted reset; never force-delete garage
+  CRs/PVCs out-of-band.
+- **Manual secrets:** ArgoCD does overwrite Secret `data` it manages. The intended
+  workaround is to leave `data`/`stringData` empty on the GitOps side and set it
+  with `kubectl`; the global `ignoreDifferences` on Secret `/data` is not needed.
+- **cmp-cdk8s segfault:** should not happen on a brand-new cluster — if it does,
+  call it out, since it needs a real fix.
+- **vcluster connect port-forwards:** die across host restarts; reconnect
+  outer→inner (`vcluster connect vc1 -n vc1`, then `vc2`).

@@ -24,10 +24,11 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     };
 
     // Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups and
-    // the Velero garage-volume backups (Velero gets its own `velero` prefix so
-    // the two don't clash). The credentials are per app too: the Barman
-    // ObjectStore uses `ehk-backups-secrets` in this namespace, Velero uses
-    // `ehk-backups` in its own namespace (see below).
+    // the VolSync/restic garage-volume backups. The two keep their data apart
+    // by prefix (`postgres/` for Barman, `restic/` for VolSync). The
+    // credentials are per app too: the Barman ObjectStore uses
+    // `ehk-backups-secrets` in this namespace, VolSync uses a per-volume
+    // `garage-{data,metadata}-backup` secret (see below).
     const backupBucket = environment.environment == "Production" ? "kir-dev-ehk-backups" : "ehk-test";
     const backupEndpoint = "https://s3.eu-central-003.backblazeb2.com";
     const backupRegion = "eu-central-003";
@@ -192,15 +193,16 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // The startup probe below deliberately hits a Payload route so the pod only
     // becomes Ready after that initialization (and thus the migrations) finishes.
 
-    // The garage-operator treats the storage spec (its labels included) as
-    // immutable while the cluster is live, so this label must stay stable; it
-    // also tags the resources the operator/StatefulSet manage.
-    const garageBackupLabels = { "backup.kir-dev.hu/ehk-garage": "true" };
     const garageLabels = {
         "app.kubernetes.io/name": "ehk-garage",
         "app.kubernetes.io/part-of": "ehk",
-        ...garageBackupLabels,
     };
+    // Kept on the storage roles (and thus their PVCs) because the garage-operator
+    // treats `storage.labels` as immutable while the cluster is live, so removing
+    // it would be rejected on the already-running cluster. Nothing selects on it
+    // anymore (the VolSync `ReplicationSource` picks the PVCs by name); it is a
+    // leftover marker from the abandoned Velero `Schedule`.
+    const garageBackupLabels = { "backup.kir-dev.hu/ehk-garage": "true" };
     const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
 
     // VolSync restores a snapshot by creating a new volume from it, so it needs
@@ -387,8 +389,14 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             metadata: {
                 name: repository,
                 annotations: {
-                    // Keep ArgoCD from pruning the manually-added keys
-                    // (RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).
+                    // The restic ReplicationSource/Destination below consumes this
+                    // secret, so create it first.
+                    "argocd.argoproj.io/sync-wave": "-26",
+                    // Only (non-secret) connection info is declared in Git; the
+                    // credentials are set manually. IgnoreExtraneous keeps ArgoCD
+                    // from pruning those extra keys (same pattern as
+                    // `ehk-backups-secrets`), so no global `ignoreDifferences` is
+                    // needed.
                     "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
                 },
             },
@@ -407,7 +415,10 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             new ApiObject(scope, `${repository}-source`, {
                 apiVersion: "volsync.backube/v1alpha1",
                 kind: "ReplicationSource",
-                metadata: { name: repository },
+                metadata: {
+                    name: repository,
+                    annotations: { "argocd.argoproj.io/sync-wave": "-25" },
+                },
                 spec: {
                     sourcePVC: volume.pvc,
                     trigger: { schedule: "45 3 * * *" },
@@ -430,7 +441,12 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             new kube.KubePersistentVolumeClaim(scope, `${repository}-restore-pvc`, {
                 metadata: {
                     name: volume.restorePvc,
-                    annotations: { "volsync.backube/snapname": volume.restoreSnapshot },
+                    annotations: {
+                        // The ReplicationDestination restores into this PVC
+                        // (wave -24); create the PVC before it.
+                        "argocd.argoproj.io/sync-wave": "-25",
+                        "volsync.backube/snapname": volume.restoreSnapshot,
+                    },
                 },
                 spec: {
                     accessModes: ["ReadWriteOnce"],
@@ -442,7 +458,10 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             new ApiObject(scope, `${repository}-destination`, {
                 apiVersion: "volsync.backube/v1alpha1",
                 kind: "ReplicationDestination",
-                metadata: { name: repository },
+                metadata: {
+                    name: repository,
+                    annotations: { "argocd.argoproj.io/sync-wave": "-24" },
+                },
                 spec: {
                     trigger: { manual: "restore-once" },
                     restic: {

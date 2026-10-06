@@ -44,15 +44,6 @@ export default singletonApp({ namespace: "argocd" }, (scope) => {
                         path: "{{.path.path}}",
                     },
                     destination: { name: "in-cluster" },
-                    // The backup credentials are filled in manually into the
-                    // Secret `data`; keep ArgoCD from pruning/reverting them.
-                    ignoreDifferences: [
-                        {
-                            group: "",
-                            kind: "Secret",
-                            jsonPointers: ["/data"],
-                        },
-                    ],
                     syncPolicy: {
                         automated: {
                             prune: true,
