@@ -7,6 +7,13 @@ Status: **backups work and are verified; restore is implemented and was verified
 end-to-end on a fresh local cluster, but the "return to normal" ergonomics and a
 couple of dynamic identifiers still need work.**
 
+Latest local e2e (dev cluster, `memory-ssd` = `hostpath.csi.k8s.io`): emptied the
+`ehk-test` bucket, brought up the cluster, seeded the app's media plus a marker
+object into Garage, ran both `ReplicationSource`s (full backup, `Successful`),
+then restored into a fresh, operator-managed `GarageCluster` via the fixed-name
+snapshots and the `dataSourceRef` path. The restored cluster served every object,
+including the marker, byte-identical.
+
 Versions involved (local): k8s `v1.36.2` (k3s), vCluster `0.35.1` (nested `vc1` →
 `vc2`), VolSync chart `0.16.0`, Velero chart `12.2.0` / `v1.18.2` (now removed),
 garage-operator `0.7.12`.
@@ -53,6 +60,17 @@ B2; a restore reproduces the files. The **database is a separate pipeline**
 Caveats: the two PVCs are snapshotted back-to-back, not as a single atomic pair
 (Garage tolerates crash-consistency). VolSync also fires one backup when a
 `ReplicationSource` is first created, not only on schedule.
+
+> [!WARNING]
+> **A failed sync can wedge the backup on a stale snapshot.** VolSync takes the
+> source snapshot under a deterministic name (`volsync-<rs>-src`) *before* it
+> validates the restic secret. If that first sync fails (e.g. the manually-filled
+> `RESTIC_PASSWORD` is missing), the snapshot is left behind and the retry reuses
+> it, so the "successful" backup reflects the volume as it was at the failed
+> attempt. Ensure the restic secret is populated before the `ReplicationSource`
+> exists, or delete the `volsync-<rs>-src` `VolumeSnapshot` to force a fresh one.
+> (Seen in the e2e: the first backup captured 64 B because the snapshot predated
+> the seeded data; recreating the `ReplicationSource` fixed it.)
 
 ## 3. Why VolSync (and why not Velero)
 
@@ -243,8 +261,16 @@ snapshot is `readyToUse`; expect the app to sit `Progressing` in the meantime.
 
 - **Do `GarageKey`/`GarageBucket` support predefined ids/secrets?** If yes, the
   dynamic-identifier problem collapses into static Git values. (Not yet checked.)
-- Confirm the prod **VolumeSnapshotClass** name (`csi-rbdplugin-snapclass` is a
-  placeholder; `memory-ssd` = `rbd.csi.ceph.com`). Ask KSZK.
+- **Prod vc2 now has the VolumeSnapshot API** (it did not before this work).
+  Upgraded with `vcluster create --upgrade vc2 -n vc2 -f .vclusters/vc2/vcluster.yaml`
+  (from the `vc-kirdev` context), which syncs the snapshot CRDs/classes into vc2.
+  Verified in prod: `memory-ssd` PVC → VolumeSnapshot (class `memory`,
+  `readyToUse: true`, driver `rbd.csi.ceph.com`) → PVC from that snapshot
+  `Bound`. Re-run this upgrade if vc2 is ever recreated from an old config.
+- **Prod VolumeSnapshotClass is `memory`** (confirmed by KSZK). The mapping is
+  confusing for legacy reasons: `memory-ssd`/`memory-hdd` → `memory`,
+  `memory-ssd-rwx` → `memory-ssd`, `node-local-zfs` → `node-local-zfs`. Garage
+  uses `memory-ssd` (RBD), so the class is `memory`; `ehk/app.ts` uses it.
 - Confirm prod bucket (`kir-dev-ehk-backups`) + credentials; secret manager TBD.
 - Implement the §5 state machine (`garageSource`/`garagePhase`) and the
   `backup/working` cleanup (keep the snapshot, drop the restore PVCs/RDs).

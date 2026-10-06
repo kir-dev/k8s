@@ -197,11 +197,12 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         "app.kubernetes.io/name": "ehk-garage",
         "app.kubernetes.io/part-of": "ehk",
     };
-    // Kept on the storage roles (and thus their PVCs) because the garage-operator
-    // treats `storage.labels` as immutable while the cluster is live, so removing
-    // it would be rejected on the already-running cluster. Nothing selects on it
-    // anymore (the VolSync `ReplicationSource` picks the PVCs by name); it is a
-    // leftover marker from the abandoned Velero `Schedule`.
+    // Leftover from the abandoned Velero `Schedule`; nothing selects on it now
+    // (VolSync picks the PVCs by name). It stays because the garage-operator
+    // treats `storage.labels` as immutable while replicas are live, and the
+    // running prod cluster already carries it — removing it is rejected
+    // ("... labels ... are immutable while replicas are live"). Do not spread it
+    // onto `garageLabels`: that part is mutable and unused.
     const garageBackupLabels = { "backup.kir-dev.hu/ehk-garage": "true" };
     const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
 
@@ -210,8 +211,11 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
     // vCluster but is not marked as the default.
     const volumeSnapshotClassName =
         environment.environment == "Production"
-            ? // TODO: confirm the Ceph RBD VolumeSnapshotClass name KSZK provides.
-              "csi-rbdplugin-snapclass"
+            ? // The `memory-ssd` StorageClass is Ceph RBD (`rbd.csi.ceph.com`), so
+              // the matching (RBD) VolumeSnapshotClass is ironically called
+              // `memory`; `memory-ssd` is the CephFS one. (There is no
+              // `csi-rbdplugin-snapclass`.)
+              "memory"
             : "csi-hostpath-snapclass";
 
     // Set to "recovery" to bootstrap garage from the latest VolSync backup
