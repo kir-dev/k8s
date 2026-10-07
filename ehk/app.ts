@@ -430,6 +430,10 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                         repository,
                         copyMethod: "Snapshot",
                         volumeSnapshotClassName,
+                        // Pin the restic cache PVC's class: otherwise it falls
+                        // back to the cluster default, and prod vc2 has none, so
+                        // the cache sits Pending and the mover never runs.
+                        cacheStorageClassName: storageClassName,
                         retain: { daily: 7, weekly: 4, monthly: 6 },
                         pruneIntervalDays: 7,
                     },
@@ -473,6 +477,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                         destinationPVC: volume.restorePvc,
                         copyMethod: "Snapshot",
                         volumeSnapshotClassName,
+                        cacheStorageClassName: storageClassName,
                     },
                 },
             });
