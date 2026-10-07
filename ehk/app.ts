@@ -567,7 +567,104 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
         },
     });
 
-    // Temp domain, proxies /eszb to ehk.bme.hu
+    // The old EHK box at 152.66.125.225 still serves the legacy site. It only
+    // answers for the `ehk.bme.hu` vhost (any other Host gets a 404), so every
+    // request proxied there must carry that Host header; the
+    // `eszb-host-override` middleware below does exactly that. An ExternalName
+    // Service points Traefik straight at the box's IP without a
+    // manually managed EndpointSlice, which Argo CD excludes from its resource
+    // supervision. Traefik builds the backend URL directly from this value, so
+    // no DNS is involved.
+    new kube.KubeService(scope, "ehk-eszb-service", {
+        metadata: { name: "ehk-eszb", labels },
+        spec: {
+            type: "ExternalName",
+            externalName: "152.66.125.225",
+            ports: [{ name: "http", port: 80 }],
+        },
+    });
+
+    new traefik.Middleware(scope, "ehk-eszb-host-override", {
+        metadata: { name: "eszb-host-override", labels },
+        spec: { headers: { customRequestHeaders: { Host: "ehk.bme.hu" } } },
+    });
+
+    const legacyProxyMiddlewares = "ehk-eszb-host-override@kubernetescrd";
+
+    // The old site stays reachable at `ehk-regi.kir-dev.hu` while
+    // `ehk.bme.hu` moves to the new app. Its DNS record points at the cluster,
+    // which terminates TLS (the old box has no valid cert for this name) and
+    // proxies everything to the box with the Host it expects.
+    new kube.KubeIngress(scope, "ehk-regi-ingress", {
+        metadata: {
+            name: "ehk-regi",
+            labels,
+            annotations: {
+                "cert-manager.io/cluster-issuer": "letsencrypt",
+                "acme.cert-manager.io/http01-ingress-class": "traefik",
+                "traefik.ingress.kubernetes.io/router.middlewares": legacyProxyMiddlewares,
+            },
+        },
+        spec: {
+            ingressClassName: "traefik",
+            tls: [{ hosts: ["ehk-regi.kir-dev.hu"], secretName: "ehk-regi-tls-cert" }],
+            rules: [
+                {
+                    host: "ehk-regi.kir-dev.hu",
+                    http: {
+                        paths: [
+                            {
+                                path: "/",
+                                pathType: "Prefix",
+                                backend: { service: { name: "ehk-eszb", port: { name: "http" } } },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    });
+
+    // The new site at `ehk.bme.hu`. Everything is served by the Payload app
+    // except the legacy `/eszb` pages, which are still only on the old box.
+    // `ehk.bme.hu` already is the Host the box expects, so no override here.
+    new kube.KubeIngress(scope, "ehk-ingress", {
+        metadata: {
+            name: "ehk",
+            labels,
+            annotations: {
+                "cert-manager.io/cluster-issuer": "letsencrypt",
+                "acme.cert-manager.io/http01-ingress-class": "traefik",
+            },
+        },
+        spec: {
+            ingressClassName: "traefik",
+            tls: [{ hosts: ["ehk.bme.hu"], secretName: "ehk-tls-cert" }],
+            rules: [
+                {
+                    host: "ehk.bme.hu",
+                    http: {
+                        paths: [
+                            {
+                                path: "/eszb",
+                                pathType: "Prefix",
+                                backend: { service: { name: "ehk-eszb", port: { name: "http" } } },
+                            },
+                            {
+                                path: "/",
+                                pathType: "Prefix",
+                                backend: { service: { name: "ehk", port: { name: "http" } } },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    });
+
+    // Temporary placeholder domain for the new site, used until the
+    // `ehk.bme.hu` DNS record points at the cluster. Production only: it
+    // resolves to the production load balancer.
     if (environment.environment == "Production") {
         new kube.KubeIngress(scope, "ehk-temp-ingress", {
             metadata: {
@@ -598,15 +695,8 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
             },
         });
 
-        // Temporary: test the legacy `/eszb` proxy through the temp domain.
-        // The old vhost only answers for `ehk.bme.hu` (verified: any other Host
-        // gets a 404), so override the Host header on the way out. A separate
-        // Ingress keeps this middleware off the `/` route above.
-        new traefik.Middleware(scope, "ehk-eszb-host-override", {
-            metadata: { name: "eszb-host-override", labels },
-            spec: { headers: { customRequestHeaders: { Host: "ehk.bme.hu" } } },
-        });
-
+        // Test the legacy `/eszb` proxy through the temp domain. A separate
+        // Ingress keeps the host-override middleware off the `/` route above.
         new kube.KubeIngress(scope, "ehk-eszb-test-ingress", {
             metadata: {
                 name: "ehk-eszb-test",
@@ -614,7 +704,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 annotations: {
                     "cert-manager.io/cluster-issuer": "letsencrypt",
                     "acme.cert-manager.io/http01-ingress-class": "traefik",
-                    "traefik.ingress.kubernetes.io/router.middlewares": "ehk-eszb-host-override@kubernetescrd",
+                    "traefik.ingress.kubernetes.io/router.middlewares": legacyProxyMiddlewares,
                 },
             },
             spec: {
@@ -629,55 +719,6 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                                     path: "/eszb",
                                     pathType: "Prefix",
                                     backend: { service: { name: "ehk-eszb", port: { name: "http" } } },
-                                },
-                            ],
-                        },
-                    },
-                ],
-            },
-        });
-
-        // The legacy `/eszb` pages are still served by the old EHK box. An
-        // ExternalName Service points Traefik at the box's IP without a
-        // manually-managed EndpointSlice, which Argo CD excludes from its
-        // resource supervision. Traefik builds the backend URL directly from
-        // this value, so no DNS is involved. The original Host header
-        // (ehk.bme.hu) is passed through unchanged by the middleware above.
-        new kube.KubeService(scope, "ehk-eszb-service", {
-            metadata: { name: "ehk-eszb", labels },
-            spec: {
-                type: "ExternalName",
-                externalName: "152.66.125.225",
-                ports: [{ name: "http", port: 80 }],
-            },
-        });
-
-        new kube.KubeIngress(scope, "ehk-ingress", {
-            metadata: {
-                name: "ehk",
-                labels,
-                annotations: {
-                    "cert-manager.io/cluster-issuer": "letsencrypt",
-                    "acme.cert-manager.io/http01-ingress-class": "traefik",
-                },
-            },
-            spec: {
-                ingressClassName: "traefik",
-                tls: [{ hosts: ["ehk.bme.hu"], secretName: "ehk-tls-cert" }],
-                rules: [
-                    {
-                        host: "ehk.bme.hu",
-                        http: {
-                            paths: [
-                                {
-                                    path: "/eszb",
-                                    pathType: "Prefix",
-                                    backend: { service: { name: "ehk-eszb", port: { name: "http" } } },
-                                },
-                                {
-                                    path: "/",
-                                    pathType: "Prefix",
-                                    backend: { service: { name: "ehk", port: { name: "http" } } },
                                 },
                             ],
                         },
