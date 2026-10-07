@@ -651,9 +651,7 @@ export default singletonApp({ namespace: "ehk", createNamespace: true }, (scope)
                 ports: [{ name: "http", port: 80 }],
             },
         });
-    }
 
-    if (false!) {
         new kube.KubeIngress(scope, "ehk-ingress", {
             metadata: {
                 name: "ehk",
