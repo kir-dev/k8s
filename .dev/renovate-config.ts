@@ -19,6 +19,9 @@ export function appConfig(app: string, options: RenovateAppOptions = {}): AllCon
         requireConfig: "optional",
         gitAuthor,
         token: process.env.RENOVATE_TOKEN,
+        // Enables fork mode: branches are pushed to the PAT owner's fork and
+        // PRs opened on kir-dev/k8s, since the bot cannot push to the repo directly.
+        forkToken: process.env.RENOVATE_TOKEN,
         repositories: [
             {
                 repository,
