@@ -1,3 +1,3 @@
 export const versions = {
-    image: "ghcr.io/kir-dev/ehk:v0.0.8@sha256:5993e151d6b6416546659ed72755291b2de9e9d6d0ca8795a8470b65a1667d56",
+    image: "ghcr.io/kir-dev/ehk:v0.0.11@sha256:9dd2394bd07b52a4a06dc1d38ee0b310ca3e466ad6ad7d8136ad8f6cc8d96f36",
 };
