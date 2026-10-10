@@ -16,14 +16,15 @@
       {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            bun
-            k3d
-            kubectl
-            kubernetes-helm
-            vcluster
+            bun # Fast JavaScript package manager and runtime
+            k3d # Simple tool for creating k3s-based Kubernetes cluster
+            kubectl # Kubernetes CLI
+            kubernetes-helm # Kubernetes package manager
+            vcluster # Virtual Kubernetes clusters
           ];
         };
 
+        # Nix formatter, use with `nix fmt`
         formatter = pkgs.nixfmt-rfc-style;
       }
     );
