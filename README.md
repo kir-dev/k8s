@@ -14,7 +14,7 @@ Install
 and [vcluster](https://www.vcluster.com/install):
 - Nix:
   - install Docker (`virtualisation.docker.enable = true` on NixOS),
-  - then `nix-shell -p kubectl bun k3d helm vcluster`
+  - then `nix develop` to enter a shell with kubectl, bun, k3d, helm and vcluster
 - Homebrew (untested):
   - install Docker,
   - then `brew install kubernetes-cli bun k3d helm vcluster`
@@ -34,8 +34,6 @@ and [vcluster](https://www.vcluster.com/install):
   sudo curl -fsSL -o /usr/local/bin/vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-${arch}"
   sudo chmod +x /usr/local/bin/vcluster
   ```
-
-`TODO:` Use a Nix flake and `nix develop`
 
 Once you have all the tools needed, deploy the cluster on your local computer using k3d:
 
