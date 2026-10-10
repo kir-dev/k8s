@@ -14,7 +14,7 @@ then restored into a fresh, operator-managed `GarageCluster` via the fixed-name
 snapshots and the `dataSourceRef` path. The restored cluster served every object,
 including the marker, byte-identical.
 
-Versions involved (local): k8s `v1.36.2` (k3s), vCluster `0.35.1` (nested `vc1` →
+Versions involved (local): k8s `v1.36.2` (k3s), vCluster `0.35.1` (nested `vc-kirdev` →
 `vc2`), VolSync chart `0.16.0`, Velero chart `12.2.0` / `v1.18.2` (now removed),
 garage-operator `0.7.12`.
 
@@ -228,7 +228,7 @@ Notes:
   repo-server `CrashLoopBackOff` → the ApplicationSet can't generate apps → no
   Applications at all. Deleting the `argocd-repo-server` pod recovers it.
 - The local `vcluster connect` port-forwards can die (`127.0.0.1:1xxxx: connection
-  refused`). Reconnect outer→inner: `vcluster connect vc1 -n vc1` (from the k3d
+  refused`). Reconnect outer→inner: `vcluster connect vc-kirdev -n vc-kirdev` (from the k3d
   context), then `vcluster connect vc2 -n vc2`.
 
 ## 8. Recovery procedure (current code)
@@ -292,7 +292,7 @@ Already on `main` (snapshot plumbing this PR builds on):
 - `.dev/local-cluster.ts` — installs external-snapshotter + `csi-driver-host-path`
   on the host and labels the snapshot class.
 - `.dev/dev-storage-classes.yaml` — `memory-ssd` → `hostpath.csi.k8s.io`.
-- `.vclusters/vc1/vcluster.yaml`, `.vclusters/vc2/vcluster.yaml` — snapshot +
+- `.vclusters/vc-kirdev/vcluster.yaml`, `.vclusters/vc2/vcluster.yaml` — snapshot +
   `persistentVolumes` sync (both layers).
 
 ## 11. References
@@ -319,4 +319,4 @@ Already on `main` (snapshot plumbing this PR builds on):
 - **cmp-cdk8s segfault:** should not happen on a brand-new cluster — if it does,
   call it out, since it needs a real fix.
 - **vcluster connect port-forwards:** die across host restarts; reconnect
-  outer→inner (`vcluster connect vc1 -n vc1`, then `vc2`).
+  outer→inner (`vcluster connect vc-kirdev -n vc-kirdev`, then `vc2`).

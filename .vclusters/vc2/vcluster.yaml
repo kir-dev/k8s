@@ -48,7 +48,7 @@ controlPlane:
   distro:
     k8s:
       image:
-        tag: v1.36.2
+        tag: v1.36.5
   statefulSet:
     resources:
       limits:
@@ -60,7 +60,6 @@ controlPlane:
         memory: 1536Mi
         ephemeral-storage: 200Mi
 
-    # Remove when running locally
     persistence:
       volumeClaim:
         storageClass: memory-ssd

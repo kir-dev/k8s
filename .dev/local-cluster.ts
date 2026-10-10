@@ -27,7 +27,7 @@ const HOSTPATH_CSI_VERSION = "v1.18.0";
 const HOSTPATH_CSI_DIR = join(ROOT, ".dev", ".cache", "csi-driver-host-path");
 
 const VCLUSTERS = [
-    { name: "vc1", namespace: "vc1", file: join(ROOT, ".vclusters/vc1/vcluster.yaml") },
+    { name: "vc-kirdev", namespace: "vc-kirdev", file: join(ROOT, ".vclusters/vc-kirdev/vcluster.yaml") },
     { name: "vc2", namespace: "vc2", file: join(ROOT, ".vclusters/vc2/vcluster.yaml") },
 ];
 

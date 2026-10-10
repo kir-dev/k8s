@@ -21,25 +21,25 @@ sync:
       clearImageStatus: true
     # Sync the host's VolumeSnapshotClass(es) so Velero can pick one.
     # Note: these volume-snapshot sync options were removed and rejected by the
-    # chart in vCluster 0.36.0, but restored in 0.37.0.
+    # chart in vCluster 0.36.0 but restored in 0.37.0.
     # https://github.com/loft-sh/vcluster/blob/3a7bd345d37c91e73c1d0baef53749d8b1912dbb/chart/templates/_validate.tpl#L61-L63
     volumeSnapshotClasses:
       enabled: true
   toHost:
     networkPolicies:
       enabled: true
-    # Velero needs the real PersistentVolume (with its `spec.csi`), otherwise
-    # vCluster substitutes a pseudo PV and Velero skips CSI snapshots.
-    persistentVolumes:
-      enabled: true
-    # Relay VolumeSnapshot(Content) resources from vc2 towards the host, where
-    # the CSI driver + snapshot controller live. Both must be enabled together.
     volumeSnapshots:
       enabled: true
     volumeSnapshotContents:
       enabled: true
 
 controlPlane:
+  statefulSet:
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+        ephemeral-storage: 5Gi
   coredns:
     deployment:
       resources:
@@ -48,11 +48,7 @@ controlPlane:
   distro:
     k8s:
       image:
-        tag: v1.36.2
-#   statefulSet:
-#     persistence:
-#       volumeClaim:
-#         storageClass: memory-ssd
+        tag: v1.36.5
 
 policies:
   podSecurityStandard: baseline
@@ -60,29 +56,29 @@ policies:
   resourceQuota:
     enabled: true
     quota:
-      requests.cpu: 30
-      limits.cpu: 60
+      requests.cpu: 100
+      limits.cpu: 100
 
-      requests.memory: 60Gi
-      limits.memory: 70Gi
+      requests.memory: 80Gi
+      limits.memory: 80Gi
 
       requests.ephemeral-storage: 40Gi
       limits.ephemeral-storage: 100Gi
-      requests.storage: 600Gi
-      memory-ssd.storageclass.storage.k8s.io/requests.storage: 100Gi
-      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 100Gi
-      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 100Gi # might be wrong (probably is wrong)
+      requests.storage: 1000Gi
+      memory-ssd.storageclass.storage.k8s.io/requests.storage: 300Gi
+      memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 300Gi
+      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 200Gi
       memory-hdd.storageclass.storage.k8s.io/requests.storage: 500Gi
 
       services.nodeports: 17
       services.loadbalancers: 16
 
       count/endpoints: 400
-      count/pods: 100
+      count/pods: 200
       count/services: 400
       count/secrets: 400
       count/configmaps: 400
-      count/persistentvolumeclaims: 100
+      count/persistentvolumeclaims: 200
 
   limitRange:
     enabled: true
