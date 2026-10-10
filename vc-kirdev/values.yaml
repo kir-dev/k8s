@@ -1,0 +1,82 @@
+#host: "<REDACTED>"
+#enableLoadBalancer: true
+#loadBalancerIP: "<REDACTED>"
+
+vcluster:
+  sync:
+    fromHost:
+      volumeSnapshotClasses:
+        enabled: true
+    toHost:
+      volumeSnapshots:
+        enabled: true
+      volumeSnapshotContents:
+        enabled: true
+  controlPlane:
+    # Proxy defines options for the virtual cluster control plane proxy that is used to do authentication and intercept requests.
+    proxy:
+      # ExtraSANs are extra hostnames to sign the vCluster proxy certificate for.
+      extraSANs: ["<REDACTED>", "<REDACTED>"]
+
+    backingStore:
+      etcd:
+        deploy:
+          statefulSet:
+            persistence:
+              volumeClaim:
+                size: 8Gi
+    service:
+      annotations:
+          traefik.ingress.kubernetes.io/service.serversscheme: https
+          traefik.ingress.kubernetes.io/service.serverstransport: vc-kirdev-vc-kirdev-insecure-transport@kubernetescrd
+
+#  exportKubeConfig:
+#    server: https://10.<REDACTED>:443
+#    secret:
+#      name: vc-kubeconfig
+
+  policies:
+    resourceQuota:
+      enabled: true
+      quota:
+        requests.cpu: 100
+        limits.cpu: 100
+
+        requests.memory: 80Gi
+        limits.memory: 80Gi
+
+        limits.ephemeral-storage: 100Gi
+
+        requests.storage: "1000Gi"
+        memory-ssd.storageclass.storage.k8s.io/requests.storage: "300Gi"
+        memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: "300Gi"
+        node-local-zfs.storageclass.storage.k8s.io/requests.storage: "200Gi"
+        memory-hdd.storageclass.storage.k8s.io/requests.storage: "500Gi"
+
+        services.nodeports: 17
+        services.loadbalancers: 16
+
+        count/pods: 200
+        count/persistentvolumeclaims: 200
+
+
+#  experimental:
+#    deploy:
+#      vcluster:
+#        manifests: |
+#          apiVersion: rbac.authorization.k8s.io/v1
+#          kind: ClusterRoleBinding
+#          metadata:
+#            name: kszk-initial-cluster-admins
+#          subjects:
+#            - kind: User
+#              name: <REDACTED>@sch.bme.hu
+#              apiGroup: rbac.authorization.k8s.io
+#            - kind: User
+#              name: <REDACTED>@sch.bme.hu
+#              apiGroup: rbac.authorization.k8s.io
+#            ...
+#          roleRef:
+#            kind: ClusterRole
+#            name: cluster-admin
+#            apiGroup: rbac.authorization.k8s.io

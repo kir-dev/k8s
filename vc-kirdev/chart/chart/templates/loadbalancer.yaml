@@ -1,0 +1,19 @@
+{{- if .Values.enableLoadBalancer }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Release.Name }}-loadbalancer
+  labels:
+    kszk.bme.hu/IPPool: private
+spec:
+  loadBalancerIP: {{ .Values.loadBalancerIP | quote}}
+  selector:
+    app: vcluster
+    release: {{.Release.Name }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+  type: LoadBalancer
+{{- end }}

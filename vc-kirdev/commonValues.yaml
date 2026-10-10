@@ -1,0 +1,194 @@
+# Enables the custom policy that blocks traffic from outside the cluster to pod ips.
+enableDefaultIngressPolicy: true
+
+vcluster:
+  # Sync describes how to sync resources from the virtual cluster to host cluster and back.
+  sync:
+    # Configure what resources vCluster should sync from the host cluster to the virtual cluster.
+    fromHost:
+      # Events defines if events should get synced from the host cluster to the virtual cluster, but not back.
+      events:
+        # Enabled defines if this option should be enabled.
+        enabled: true
+      # CSIDrivers defines if csi drivers should get synced from the host cluster to the virtual cluster, but not back. If auto, is automatically enabled when the virtual scheduler is enabled.
+      csiDrivers:
+        # Enabled defines if this option should be enabled.
+        enabled: auto
+      # CSINodes defines if csi nodes should get synced from the host cluster to the virtual cluster, but not back. If auto, is automatically enabled when the virtual scheduler is enabled.
+      csiNodes:
+        # Enabled defines if this option should be enabled.
+        enabled: auto
+      # CSIStorageCapacities defines if csi storage capacities should get synced from the host cluster to the virtual cluster, but not back. If auto, is automatically enabled when the virtual scheduler is enabled.
+      csiStorageCapacities:
+        # Enabled defines if this option should be enabled.
+        enabled: auto
+      # StorageClasses defines if storage classes should get synced from the host cluster to the virtual cluster, but not back. If auto, is automatically enabled when the virtual scheduler is enabled.
+      storageClasses:
+        # Enabled defines if this option should be enabled.
+        enabled: true
+      # IngressClasses defines if ingress classes should get synced from the host cluster to the virtual cluster, but not back.
+      ingressClasses:
+        # Enabled defines if this option should be enabled.
+        enabled: false
+      # RuntimeClasses defines if runtime classes should get synced from the host cluster to the virtual cluster, but not back.
+      runtimeClasses:
+        # Enabled defines if this option should be enabled.
+        enabled: false
+      # PriorityClasses defines if priority classes classes should get synced from the host cluster to the virtual cluster, but not back.
+      priorityClasses:
+        # Enabled defines if this option should be enabled.
+        enabled: false
+      # Nodes defines if nodes should get synced from the host cluster to the virtual cluster, but not back.
+      nodes:
+        # Enabled specifies if syncing real nodes should be enabled. If this is disabled, vCluster will create fake nodes instead.
+        enabled: true
+        # ClearImageStatus will erase the image status when syncing a node. This allows to hide images that are pulled by the node.
+        clearImageStatus: true
+        # Selector can be used to define more granular what nodes should get synced from the host cluster to the virtual cluster.
+        selector:
+          # All specifies if all nodes should get synced by vCluster from the host to the virtual cluster or only the ones where pods are assigned to.
+          all: false
+          labels:
+            kszk.bme.hu/role: worker
+
+    toHost:
+      networkPolicies:
+        enabled: true
+
+  # Configure vCluster's control plane components and deployment.
+  controlPlane:
+    statefulSet:
+      resources:
+        limits:
+          cpu: "1000m"
+          memory: "2Gi"
+          ephemeral-storage: "5Gi"
+    coredns:
+      deployment:
+        resources:
+          limits:
+            cpu: "256m"
+    distro:
+      k8s:
+        image:
+          tag: "v1.36.5"
+
+    # BackingStore defines which backing store to use for virtual cluster. If not defined will use embedded database as a default backing store.
+    backingStore:
+      # Etcd defines that etcd should be used as the backend for the virtual cluster
+      etcd:
+        deploy:
+          # Enabled defines that an external etcd should be deployed.
+          enabled: true
+          # StatefulSet holds options for the external etcd statefulSet.
+          statefulSet:
+            resources:
+              limits:
+                cpu: "256m"
+            # Enabled defines if the statefulSet should be deployed
+            enabled: true
+            # HighAvailability are high availability options
+            highAvailability:
+              # Replicas are the amount of pods to use.
+              replicas: 1
+            # Persistence options for the etcd pods.
+            persistence:
+              # VolumeClaim can be used to configure the persistent volume claim.
+              volumeClaim:
+                # Enabled enables deploying a persistent volume claim.
+                enabled: true
+                # RetentionPolicy is the persistent volume claim retention policy.
+                retentionPolicy: Retain
+                # Size is the persistent volume claim storage size.
+                size: 5Gi
+                # StorageClass is the persistent volume claim storage class.
+                storageClass: "memory-ssd"
+                # AccessModes are the persistent volume claim access modes.
+                accessModes: ["ReadWriteOnce"]
+
+  # Policies to enforce for the virtual cluster deployment as well as within the virtual cluster.
+  policies:
+    # networkPolicy:
+    #   # Enabled defines if the network policy should be deployed by vCluster.
+    #   enabled: true
+    #   fallbackDns: 152.66.208.1
+    #   outgoingConnections:
+    #     # IPBlock describes a particular CIDR (Ex. "192.168.1.0/24","2001:db8::/64") that is allowed
+    #     # to the pods matched by a NetworkPolicySpec's podSelector. The except entry describes CIDRs
+    #     # that should not be included within this rule.
+    #     ipBlock:
+    #       # cidr is a string representing the IPBlock
+    #       # Valid examples are "192.168.1.0/24" or "2001:db8::/64"
+    #       cidr: 0.0.0.0/0
+    #       # except is a slice of CIDRs that should not be included within an IPBlock
+    #       # Valid examples are "192.168.1.0/24" or "2001:db8::/64"
+    #       # Except values will be rejected if they are outside the cidr range
+    #       # +optional
+    #       except:
+    #         - 100.64.0.0/10
+    #         - 127.0.0.0/8
+    #         - 10.0.0.0/8
+    #         - 172.16.0.0/12
+    #         - 192.168.0.0/16
+
+    podSecurityStandard: baseline
+    # ResourceQuota specifies resource quota options.
+    resourceQuota:
+      enabled: true
+      quota:
+        requests.cpu: 20
+        limits.cpu: 20
+
+        requests.memory: 60Gi
+        limits.memory: 60Gi
+
+        requests.ephemeral-storage: 40Gi
+        limits.ephemeral-storage: 40Gi
+        requests.storage: "600Gi"
+        memory-ssd.storageclass.storage.k8s.io/requests.storage: "100Gi"
+        memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: "100Gi"
+        node-local-zfs.storageclass.storage.k8s.io/requests.storage: "0Gi"
+        memory-hdd.storageclass.storage.k8s.io/requests.storage: "500Gi"
+
+        services.nodeports: 4
+        services.loadbalancers: 3
+
+        count/endpoints: 400
+        count/pods: 40
+        count/services: 400
+        count/secrets: 400
+        count/configmaps: 400
+        count/persistentvolumeclaims: 40
+
+    # LimitRange specifies limit range options.
+    limitRange:
+      # Enabled defines if the limit range should be deployed by vCluster. "auto" means that if resourceQuota is enabled,
+      # the limitRange will be enabled as well.
+      enabled: auto
+      # Default are the default limits for the limit range
+      default:
+        ephemeral-storage: 1Gi
+        memory: 1Gi
+        cpu: "1"
+      # DefaultRequest are the default request options for the limit range
+      defaultRequest:
+        ephemeral-storage: 40Mi
+        memory: 128Mi
+        cpu: 100m
+      # Min are the min limits for the limit range
+      min: {}
+      # Max are the max limits for the limit range
+      max: {}
+
+  telemetry:
+    # Enabled specifies that the telemetry for the vCluster control plane should be enabled.
+    enabled: false
+
+  integrations:
+    metricsServer:
+      enabled: true
+      apiService:
+        service:
+          name: metrics-server
+          namespace: metrics-server
+          port: 443

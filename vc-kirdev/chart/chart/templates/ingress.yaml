@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+ annotations:
+  cert-manager.io/cluster-issuer: dns-issuer
+  kubernetes.io/tls-acme: 'true'
+  kszk.bme.hu/auto-dns: "true"
+  traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  traefik.ingress.kubernetes.io/router.tls: "true"
+ name: {{.Release.Name }}-ingress
+spec:
+ ingressClassName: traefik
+ rules:
+ - host: {{ .Values.host }}
+   http:
+     paths:
+     - backend:
+         service:
+           name: {{ .Release.Name }}
+           port:
+             number: 443
+       path: /
+       pathType: ImplementationSpecific
+ tls:
+ - hosts:
+   - {{ .Values.host }}
+   secretName: {{.Release.Name }}-cert

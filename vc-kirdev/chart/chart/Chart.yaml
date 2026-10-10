@@ -1,0 +1,13 @@
+apiVersion: v2
+
+name: vcluster
+description: Vcluster
+
+version: 1.0.0
+
+dependencies:
+  - name: vcluster
+    version: 0.37.2 # Note: Kubernetes version inside the vcluster is defined in the commonValues.yaml file
+    repository: https://charts.loft.sh
+
+appVersion: "1.0.0"

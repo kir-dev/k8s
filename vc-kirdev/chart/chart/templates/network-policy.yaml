@@ -1,0 +1,77 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "{{ .Release.Name }}-deny-private-subnets"
+spec:
+  enableDefaultDeny:
+    egress: false
+  endpointSelector: {}  # Apply to all pods in the namespace
+  egressDeny:
+    - toCIDRSet:
+        - cidr: "10.0.0.0/8"
+          except:
+            - "10.151.0.0/16"
+            - "10.152.0.0/16"
+---
+{{- if .Values.enableDefaultIngressPolicy -}}
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "{{ .Release.Name }}-allow-namespace-ingress-only"
+specs:
+  - description: "Allow any traffic within the namespace"
+    endpointSelector:
+      matchLabels: {}
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              {}
+
+  - description: "Allow traffic from ingress controllers"
+    endpointSelector:
+      matchLabels: {}
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              io.kubernetes.pod.namespace: ingress-traefik
+              app.kubernetes.io/name: traefik
+{{ else }}
+# If the default policy is not enabled, the responsibility to create network policies falls on the vCluster's user.
+# vCluster components are not visible from inside the vCluster, so we protect them separately.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-etcd-ingress
+spec:
+  endpointSelector:
+    matchLabels:
+      app: vcluster-etcd
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: vcluster
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-api-server-ingress
+specs:
+  - description: "Allow access to API server within the namespace"
+    endpointSelector:
+      matchLabels:
+        app: vcluster
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              {}
+
+  - description: "Allow access to API server from ingress controllers"
+    endpointSelector:
+      matchLabels:
+        app: vcluster
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              io.kubernetes.pod.namespace: ingress-traefik
+              app.kubernetes.io/name: traefik
+{{- end -}}
