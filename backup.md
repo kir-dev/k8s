@@ -292,8 +292,8 @@ Already on `main` (snapshot plumbing this PR builds on):
 - `.dev/local-cluster.ts` — installs external-snapshotter + `csi-driver-host-path`
   on the host and labels the snapshot class.
 - `.dev/dev-storage-classes.yaml` — `memory-ssd` → `hostpath.csi.k8s.io`.
-- `.vclusters/vc-kirdev/vcluster.yaml`, `.vclusters/vc2/vcluster.yaml` — snapshot +
-  `persistentVolumes` sync (both layers).
+- `.vclusters/vc-kirdev/vcluster.yaml`, `.vclusters/vc2/vcluster.yaml` — snapshot
+  sync (both layers). `persistentVolumes` sync is not needed for VolSync.
 
 ## 11. References
 
