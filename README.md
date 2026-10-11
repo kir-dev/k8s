@@ -5,43 +5,24 @@ deployed following GitOps principles using Argo CD.
 
 ## Running locally
 
-Install
+This setup requires installing quite a few tools:
 [docker](https://docs.docker.com/engine/install/),
 [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl),
 [bun](https://bun.com/docs/installation),
 [k3d](https://k3d.io/stable/#installation),
 [helm](https://helm.sh/docs/intro/install),
-and [vcluster](https://www.vcluster.com/install):
-- Nix:
-  - install Docker (`virtualisation.docker.enable = true` on NixOS),
-  - then `nix-shell -p kubectl bun k3d helm vcluster`
-- Homebrew (untested):
-  - install Docker,
-  - then `brew install kubernetes-cli bun k3d helm vcluster`
-- Linux, WSL (untested):
-  ```bash
-  # Docker Engine (on WSL you can instead enable Docker Desktop's WSL integration)
-  curl -fsSL https://get.docker.com | sudo sh
-  sudo usermod -aG docker "$USER" # then re-login
-
-  curl -fsSL https://bun.sh/install | bash
-  curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; *) echo "unsupported arch" >&2; exit 1 ;; esac
-  kubectl_ver=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
-  sudo curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${kubectl_ver}/bin/linux/${arch}/kubectl"
-  sudo chmod +x /usr/local/bin/kubectl
-  sudo curl -fsSL -o /usr/local/bin/vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-${arch}"
-  sudo chmod +x /usr/local/bin/vcluster
-  ```
-
-`TODO:` Use a Nix flake and `nix develop`
-
-Once you have all the tools needed, deploy the cluster on your local computer using k3d:
+and [vcluster](https://www.vcluster.com/install).
+The recommended way is to:
+- [install the Nix package manager](https://nixos.org/download/#download-nix),
+- [install Docker](https://docs.docker.com/engine/install/),
+- then `nix develop` in the repo root to enter a shell with all the necessary tools:
 
 ```bash
 git clone https://github.com/kir-dev/k8s
 cd k8s
+
+# enter the nix dev shell (if using nix)
+nix develop
 
 # install JS dependencies,
 # rerun anytime dependencies in package.json change!
@@ -62,8 +43,8 @@ bun run local-cluster:sync
 bun run local-cluster:down
 ```
 
-If you run into any issues [open an issue](https://github.com/kir-dev/k8s/issues/new),
-so that others won't have to run into it again.
+If you encounter any issues, [open a GitHub issue](https://github.com/kir-dev/k8s/issues/new),
+so that others won't have to run into them again.
 
 ## Adding a new app
 
@@ -144,7 +125,7 @@ ArgoCD checks each top-level directory except the ones starting with a `.`. If i
 
 ### Bootstrapping the production cluster
 
-Given `kubectl config current-context` == `vc-kirdev`, the following installs the inner vCluster, Argo CD and the ApplicationSet.
+Given `kubectl config current-context` == `vc-kirdev`, the following installs the inner vCluster, Argo CD, and the ApplicationSet.
 
 ```bash
 bun install
