@@ -21,7 +21,7 @@ sync:
       clearImageStatus: true
     # Sync the host's VolumeSnapshotClass(es) so Velero can pick one.
     # Note: these volume-snapshot sync options were removed and rejected by the
-    # chart in vCluster 0.36.0, but restored in 0.37.0.
+    # chart in vCluster 0.36.0 but restored in 0.37.0.
     volumeSnapshotClasses:
       enabled: true
   toHost:
@@ -80,7 +80,7 @@ policies:
       requests.storage: 600Gi
       memory-ssd.storageclass.storage.k8s.io/requests.storage: 100Gi
       memory-ssd-rwx.storageclass.storage.k8s.io/requests.storage: 100Gi
-      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 100Gi # might be wrong (probably is wrong)
+      node-local-zfs.storageclass.storage.k8s.io/requests.storage: 100Gi
       memory-hdd.storageclass.storage.k8s.io/requests.storage: 500Gi
 
       services.nodeports: 17
