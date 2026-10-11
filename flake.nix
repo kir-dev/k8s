@@ -1,31 +1,47 @@
 {
-  description = "Kir-Dev Kubernetes configuration development environment";
+  description = "Kir-Dev Kubernetes development environment";
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
+  # We only depend on a version of Nixpkgs
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+  # Output a dev shell per system
   outputs =
-    { nixpkgs, flake-utils, ... }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            bun # Fast JavaScript package manager and runtime
-            k3d # Simple tool for creating k3s-based Kubernetes cluster
-            kubectl # Kubernetes CLI
-            kubernetes-helm # Kubernetes package manager
-            vcluster # Virtual Kubernetes clusters
-          ];
-        };
+    { nixpkgs, ... }:
+    let
+      systems = [
+        # This flake can be used on: Linux x86_64 and MacOS Intel + Apple Silicon
+        "x86_64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+    in
+    {
+      # Output a dev shell for each supported system
+      devShells = forAllSystems (system: {
+        default =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+          in
+          # Make a shell that has these packages available
+          pkgs.mkShell {
+            packages = [
+              pkgs.bun # JavaScript runtime and package manager
+              pkgs.k3d # Local dev Kubernetes clusters
+              pkgs.kubectl # Kubernetes CLI
+              pkgs.kubelogin-oidc # OIDC login for kubectl, usage: `kubectl oidc-login`
+              pkgs.kubernetes-helm # Kubernetes package manager
+              pkgs.vcluster # Virtual Kubernetes clusters
+            ];
 
-        # Nix formatter, use with `nix fmt`
-        formatter = pkgs.nixfmt-rfc-style;
-      }
-    );
+            # Add a [dev-shell] prefix to the shell prompt
+            shellHook = ''
+              export PS1="\[\e[1;34m\][dev-shell]\[\e[0m\] $PS1"
+            '';
+          };
+      });
+
+      # Set the Nix formatter, usage: `nix develop`, then `nix fmt flake.nix`
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt);
+    };
 }
