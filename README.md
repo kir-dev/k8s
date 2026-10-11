@@ -14,7 +14,7 @@ This setup requires installing quite a few tools:
 and [vcluster](https://www.vcluster.com/install).
 The recommended way is to:
 - [install the Nix package manager](https://nixos.org/download/#download-nix),
-- [install Docker](https://nixos.org/download/#download-nix),
+- [install Docker](https://docs.docker.com/engine/install/),
 - then `nix develop` in the repo root to enter a shell with all the necessary tools:
 
 ```bash
