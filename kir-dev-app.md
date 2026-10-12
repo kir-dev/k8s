@@ -17,8 +17,24 @@ additional config when restoring:
 
 everything else implicit?
 
-ideas:
-- string interpolation for connection strings
-  ```ts
-  function f(strings: TemplateStringsArray, ...params: SecretRef) { }
-  ```
+example:
+```ts
+const app = createKirDevApp("startsch");
+const backblaze = createBackblaze({
+    ...
+});
+const db = app.addPostgres({
+
+});
+const s3 = app.addGarage();
+const server = app.addDocker({
+    env: {
+        Logging: "Warning",
+        S3:
+        ConnectionString: `Host=${db.host}...`,
+        ...manualSecrets([
+            "AuthSch__Secret"
+        ])
+    }
+});
+```
