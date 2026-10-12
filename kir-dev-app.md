@@ -23,18 +23,26 @@ const app = createKirDevApp("startsch");
 const backblaze = createBackblaze({
     ...
 });
-const db = app.addPostgres({
-
+const db = app.addPostgres("db", {
+    backup: {
+        provider: backblaze.withPrefix("postgres"),
+        phase: "runningAfterRestore",
+    }
 });
-const s3 = app.addGarage();
-const server = app.addDocker({
+const s3 = app.addGarage("s3", {
+    backup: {
+        provider: backblaze.withPrefix("garage"),
+        phase: "runningAfterRestore",
+    },
+});
+const server = app.addDocker("server", {
     env: {
         Logging: "Warning",
-        S3:
+        S3: s3.whatever,
         ConnectionString: `Host=${db.host}...`,
         ...manualSecrets([
             "AuthSch__Secret"
-        ])
+        ]),
     }
 });
 ```
