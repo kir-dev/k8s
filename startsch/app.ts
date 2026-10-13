@@ -39,7 +39,7 @@ const db = app.addPostgres({
               provider: b2.withPrefix(""),
               schedule: "0 24 3 * * *",
               name: "startsch-backup",
-              secret: "startsch-backups-secrets",
+              backblazeCredentialSecret: "startsch-backups-secrets",
           }
         : false,
 });

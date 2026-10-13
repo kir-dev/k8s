@@ -27,7 +27,11 @@ const app = createKirDevApp("ehk", {
 
 const db = app.addPostgres({
     image: "ghcr.io/cloudnative-pg/postgresql:17.5",
-    backup: { provider: b2.withPrefix("postgres/"), schedule: "0 18 3 * * *", secret: "ehk-backups-secrets" },
+    backup: {
+        provider: b2.withPrefix("postgres/"),
+        schedule: "0 18 3 * * *",
+        backblazeCredentialSecret: "ehk-backups-secrets",
+    },
 });
 
 const s3 = app.addGarage({
@@ -35,7 +39,8 @@ const s3 = app.addGarage({
     backup: {
         provider: b2.withPrefix("restic/"),
         schedule: "45 3 * * *",
-        secret: (volume) => `garage-${volume}-backup`,
+        dataBackblazeCredentialSecret: "garage-data-backup",
+        metadataBackblazeCredentialSecret: "garage-metadata-backup",
     },
 });
 
