@@ -12,12 +12,13 @@
 // raw cdk8s APIs. Call `.build()` at the end to materialize the registered
 // workloads/routes and get the cdk8s `App`.
 
-import { ApiObject, App, Chart } from "cdk8s";
+import { App, Chart } from "cdk8s";
 import { Construct } from "constructs";
 import * as kube from "../imports/k8s";
 import * as cnpg from "../imports/postgresql.cnpg.io.ts";
 import * as barman from "../imports/barmancloud.cnpg.io.ts";
 import * as garage from "../imports/garage.rajsingh.info.ts";
+import * as volsync from "../imports/volsync.backube.ts";
 import * as environment from "./environment.ts";
 import { DevStorageClass, ProdStorageClass, storageClass } from "./storageClass.ts";
 
@@ -975,9 +976,7 @@ export class KirDevApp {
                     },
                 });
 
-                new ApiObject(this.scope, `${sourceName}-destination`, {
-                    apiVersion: "volsync.backube/v1alpha1",
-                    kind: "ReplicationDestination",
+                new volsync.ReplicationDestination(this.scope, `${sourceName}-destination`, {
                     metadata: {
                         name: sourceName,
                         ...this.waveAnnotation(-24),
@@ -986,27 +985,25 @@ export class KirDevApp {
                         trigger: { manual: "restore-once" },
                         restic: {
                             repository: secretName,
-                            destinationPVC: restorePvc,
-                            copyMethod: "Snapshot",
+                            destinationPvc: restorePvc,
+                            copyMethod: volsync.ReplicationDestinationSpecResticCopyMethod.SNAPSHOT,
                             volumeSnapshotClassName: options.volumeSnapshotClassName,
                             cacheStorageClassName: options.storageClassName,
                         },
                     },
                 });
             } else {
-                new ApiObject(this.scope, `${sourceName}-source`, {
-                    apiVersion: "volsync.backube/v1alpha1",
-                    kind: "ReplicationSource",
+                new volsync.ReplicationSource(this.scope, `${sourceName}-source`, {
                     metadata: {
                         name: sourceName,
                         ...this.waveAnnotation(-25),
                     },
                     spec: {
-                        sourcePVC: pvc,
+                        sourcePvc: pvc,
                         trigger: { schedule: options.schedule ?? "45 3 * * *" },
                         restic: {
                             repository: secretName,
-                            copyMethod: "Snapshot",
+                            copyMethod: volsync.ReplicationSourceSpecResticCopyMethod.SNAPSHOT,
                             volumeSnapshotClassName: options.volumeSnapshotClassName,
                             // Pin the restic cache PVC's class: otherwise it
                             // falls back to the cluster default.

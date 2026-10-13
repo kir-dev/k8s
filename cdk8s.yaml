@@ -34,3 +34,7 @@ imports:
   - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagekeys.yaml
   - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagenodes.yaml
   - https://raw.githubusercontent.com/rajsinghtech/garage-operator/v0.7.12/config/crd/bases/garage.rajsingh.info_garagereferencegrants.yaml
+
+  # VolSync
+  - https://raw.githubusercontent.com/backube/volsync/v0.16.0/config/crd/bases/volsync.backube_replicationdestinations.yaml
+  - https://raw.githubusercontent.com/backube/volsync/v0.16.0/config/crd/bases/volsync.backube_replicationsources.yaml
