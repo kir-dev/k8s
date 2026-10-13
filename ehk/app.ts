@@ -27,8 +27,6 @@ const app = createKirDevApp("ehk", {
 });
 
 const db = app.addPostgres({
-    database: "ehk",
-    owner: "ehk",
     backup: { schedule: "0 18 3 * * *" },
 });
 
@@ -41,17 +39,11 @@ const server = app
     .addDocker({
         image: versions.image,
         env: {
-            DATABASE_URI: db.uri,
-            PAYLOAD_SECRET: manualSecret(),
-            S3_ACCESS_KEY_ID: s3.accessKeyId,
-            S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
-        },
-        config: {
+            ...s3.env(),
             NODE_ENV: "production",
             NEXT_TELEMETRY_DISABLED: "1",
-            S3_BUCKET: "ehk-media",
-            S3_REGION: "us-east-1",
-            S3_ENDPOINT: "http://ehk-garage:3900",
+            DATABASE_URI: db.uri,
+            PAYLOAD_SECRET: manualSecret(),
         },
         // Hit a Payload route so Payload's initialization (including
         // `prodMigrations`) completes before the pod reports Ready.

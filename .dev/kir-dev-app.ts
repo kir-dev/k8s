@@ -34,15 +34,6 @@ export abstract class EnvRef {
     abstract apply(name: string, app: KirDevApp): kube.EnvVar[];
 }
 
-class LiteralRef extends EnvRef {
-    constructor(private readonly value: string) {
-        super();
-    }
-    apply(name: string): kube.EnvVar[] {
-        return [{ name, value: this.value }];
-    }
-}
-
 /**
  * A reference to one key of a Kubernetes Secret. Secrets are never passed
  * around as values: cdk8s manifests are committed to Git, and the values are
@@ -122,6 +113,9 @@ export interface ResourceSpec {
     requests?: Record<string, string>;
 }
 
+// Shared across all apps for now; centralized later.
+const POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:17.5";
+
 const POSTGRES_RESOURCES: Required<ResourceSpec> = {
     limits: { cpu: "500m", memory: "512Mi", "ephemeral-storage": "500Mi" },
     requests: { cpu: "100m", memory: "128Mi", "ephemeral-storage": "100Mi" },
@@ -173,6 +167,12 @@ export interface S3Handle {
     readonly credentialsSecret: string;
     readonly accessKeyId: SecretKeyRef;
     readonly secretAccessKey: SecretKeyRef;
+    /**
+     * The S3 connection as environment variables (spread into `env`):
+     * `<prefix>ENDPOINT`, `<prefix>BUCKET`, `<prefix>REGION`,
+     * `<prefix>ACCESS_KEY_ID`, `<prefix>SECRET_ACCESS_KEY`. Default prefix `S3_`.
+     */
+    env(prefix?: string): EnvSpec;
 }
 
 // --- options --------------------------------------------------------------
@@ -202,10 +202,7 @@ export interface KirDevAppOptions {
 }
 
 export interface PostgresOptions {
-    database?: string;
-    owner?: string;
     instances?: number;
-    image?: string;
     imagePullPolicy?: string;
     storageClass?: string;
     size?: string;
@@ -257,16 +254,14 @@ export interface ProbeOptions {
 
 export interface DockerOptions {
     image: string;
-    /** Container port the Service and Ingress target. Default 80; see `.port()`. */
-    port?: number;
     /** Resource base name. Default the app name. */
     name?: string;
     containerName?: string;
     replicas?: number;
     imagePullPolicy?: string;
-    /** ConfigMap data; the ConfigMap is named `<name>-config` and mounted via `envFrom`. */
-    config?: Record<string, string>;
-    /** Environment variables; values may reference the `addPostgres`/`addGarage` handles. */
+    /** Environment variables. String values go into the `<name>-config` ConfigMap;
+     *  values that reference a handle (`db.uri`, `manualSecret()`, `s3.env()`) become
+     *  per-key `secretKeyRef`s. */
     env?: EnvSpec;
     startupProbe?: ProbeOptions;
     readinessProbe?: ProbeOptions;
@@ -279,14 +274,12 @@ export interface DockerOptions {
 
 /** A container workload being built; returned by `addDocker`. */
 export class DockerBuilder {
-    /** @internal */ portNumber: number;
+    /** @internal */ portNumber?: number;
     /** @internal */ readonly ingresses: { host: string; options: ExposeOptions }[] = [];
 
-    constructor(readonly options: DockerOptions) {
-        this.portNumber = options.port ?? 80;
-    }
+    constructor(readonly options: DockerOptions) {}
 
-    /** Set the container port the Service and Ingress target. */
+    /** Declare the container port and create the workload's Service. */
     port(port: number): this {
         this.portNumber = port;
         return this;
@@ -324,6 +317,7 @@ export class KirDevApp {
     private readonly devSecrets?: Record<string, string>;
     private readonly declaredSecrets = new Set<string>();
     private readonly dockerBuilders: DockerBuilder[] = [];
+    private postgresAdded = false;
     /** The standard `app.kubernetes.io/*` labels, merged with `options.labels`. */
     readonly labels: Record<string, string>;
 
@@ -389,25 +383,23 @@ export class KirDevApp {
         return name;
     }
 
-    private toEnvVars(spec: EnvSpec): kube.EnvVar[] {
-        return Object.entries(spec).flatMap(([name, value]) =>
-            (typeof value === "string" ? new LiteralRef(value) : value).apply(name, this),
-        );
-    }
-
     // --- postgres ---------------------------------------------------------
 
     addPostgres(options: PostgresOptions = {}): PostgresHandle {
+        if (this.postgresAdded) throw new Error(`${this.name}: addPostgres can only be called once`);
+        this.postgresAdded = true;
+
         const name = this.name;
-        const database = options.database ?? name;
-        const owner = options.owner ?? database;
+        // The database and owner are the app name.
+        const database = name;
+        const owner = name;
         const clusterName = `${name}-db`;
         const secretName = `${clusterName}-app`;
 
         const backupEnabled = this.resolveBackup(options.backup);
         const restore = options.restore === "latest";
         const externalClusterName = options.externalClusterName ?? "barman-backup";
-        const image = options.image ?? "ghcr.io/cloudnative-pg/postgresql:17.5";
+        const image = POSTGRES_IMAGE;
 
         const resources = options.resources ?? POSTGRES_RESOURCES;
         const baseSpec: cnpg.ClusterSpec = {
@@ -699,6 +691,15 @@ export class KirDevApp {
             credentialsSecret,
             accessKeyId: new SecretKeyRef(credentialsSecret, "access-key-id", "S3_ACCESS_KEY_ID"),
             secretAccessKey: new SecretKeyRef(credentialsSecret, "secret-access-key", "S3_SECRET_ACCESS_KEY"),
+            env(prefix = "S3_") {
+                return {
+                    [`${prefix}ENDPOINT`]: this.endpoint,
+                    [`${prefix}BUCKET`]: this.bucketNames[0],
+                    [`${prefix}REGION`]: this.region,
+                    [`${prefix}ACCESS_KEY_ID`]: this.accessKeyId,
+                    [`${prefix}SECRET_ACCESS_KEY`]: this.secretAccessKey,
+                };
+            },
         };
         return handle;
     }
@@ -716,28 +717,40 @@ export class KirDevApp {
         const base = options.name ?? this.name;
         const containerName = options.containerName ?? base;
         const portName = "http";
+        const port = workload.portNumber;
         const labels = { ...(options.labels ?? this.labels) };
 
-        if (options.config) {
-            new kube.KubeConfigMap(this.chart, `${base}-config`, {
-                metadata: {
-                    name: `${base}-config`,
-                    ...this.waveAnnotation(-25),
-                },
-                data: options.config,
-            });
+        if (workload.ingresses.length > 0 && port === undefined) {
+            throw new Error(`${base}: publish() requires port()`);
         }
 
-        new kube.KubeService(this.chart, `${base}-service`, {
-            metadata: { name: base, labels },
-            spec: {
-                selector: labels,
-                ports: [{ name: portName, port: 80, targetPort: kube.IntOrString.fromString(portName) }],
-            },
-        });
+        // String env values go into the ConfigMap; refs become per-key env vars.
+        const configData: Record<string, string> = {};
+        const envVars: kube.EnvVar[] = [];
+        for (const [name, value] of Object.entries(options.env ?? {})) {
+            if (typeof value === "string") configData[name] = value;
+            else envVars.push(...value.apply(name, this));
+        }
 
         const envFrom: kube.EnvFromSource[] = [];
-        if (options.config) envFrom.push({ configMapRef: { name: `${base}-config` } });
+        if (Object.keys(configData).length > 0) {
+            new kube.KubeConfigMap(this.chart, `${base}-config`, {
+                metadata: { name: `${base}-config`, ...this.waveAnnotation(-25) },
+                data: configData,
+            });
+            envFrom.push({ configMapRef: { name: `${base}-config` } });
+        }
+
+        // `.port()` creates the Service; `.publish()` wires an Ingress to it.
+        if (port !== undefined) {
+            new kube.KubeService(this.chart, `${base}-service`, {
+                metadata: { name: base, labels },
+                spec: {
+                    selector: labels,
+                    ports: [{ name: portName, port: 80, targetPort: kube.IntOrString.fromString(portName) }],
+                },
+            });
+        }
 
         new kube.KubeDeployment(this.chart, `${base}-deployment`, {
             metadata: { name: base, labels },
@@ -753,8 +766,11 @@ export class KirDevApp {
                                 name: containerName,
                                 image: options.image,
                                 imagePullPolicy: options.imagePullPolicy ?? "IfNotPresent",
-                                ports: [{ containerPort: workload.portNumber, protocol: "TCP", name: portName }],
-                                env: options.env ? this.toEnvVars(options.env) : undefined,
+                                ports:
+                                    port !== undefined
+                                        ? [{ containerPort: port, protocol: "TCP", name: portName }]
+                                        : undefined,
+                                env: envVars.length > 0 ? envVars : undefined,
                                 envFrom: envFrom.length > 0 ? envFrom : undefined,
                                 startupProbe: options.startupProbe
                                     ? httpProbe(options.startupProbe, portName)
