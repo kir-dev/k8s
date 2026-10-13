@@ -88,10 +88,8 @@ export class ManualSecret extends EnvRef {
         super();
     }
     apply(name: string, app: KirDevApp): kube.EnvVar[] {
-        const secret = `${app.name}-secrets`;
         const key = this.key ?? name;
-        app.ensureManualSecret(secret, key);
-        return [{ name, valueFrom: { secretKeyRef: { name: secret, key } } }];
+        return [{ name, valueFrom: { secretKeyRef: { name: app.appSecrets(), key } } }];
     }
 }
 
@@ -259,8 +257,8 @@ export interface ProbeOptions {
 
 export interface DockerOptions {
     image: string;
-    /** Container port the Service and Ingress target. */
-    port: number;
+    /** Container port the Service and Ingress target. Default 80; see `.port()`. */
+    port?: number;
     /** Resource base name. Default the app name. */
     name?: string;
     containerName?: string;
@@ -268,12 +266,8 @@ export interface DockerOptions {
     imagePullPolicy?: string;
     /** ConfigMap data; the ConfigMap is named `<name>-config` and mounted via `envFrom`. */
     config?: Record<string, string>;
-    /** Extra Secret mounted via `envFrom`. */
-    envFromSecrets?: string[];
     /** Environment variables; values may reference the `addPostgres`/`addGarage` handles. */
     env?: EnvSpec;
-    /** A metadata-only Secret (values filled in by hand), created but not mounted. */
-    secrets?: { name?: string; stringData?: Record<string, string> };
     startupProbe?: ProbeOptions;
     readinessProbe?: ProbeOptions;
     livenessProbe?: ProbeOptions;
@@ -281,6 +275,28 @@ export interface DockerOptions {
     automountServiceAccountToken?: boolean;
     /** Workload/Service labels. Default the app's `app.kubernetes.io/*` labels. */
     labels?: Record<string, string>;
+}
+
+/** A container workload being built; returned by `addDocker`. */
+export class DockerBuilder {
+    /** @internal */ portNumber: number;
+    /** @internal */ readonly ingresses: { host: string; options: ExposeOptions }[] = [];
+
+    constructor(readonly options: DockerOptions) {
+        this.portNumber = options.port ?? 80;
+    }
+
+    /** Set the container port the Service and Ingress target. */
+    port(port: number): this {
+        this.portNumber = port;
+        return this;
+    }
+
+    /** Publish the workload at `host` through Traefik, with a cert-manager certificate. */
+    publish(host: string, options: ExposeOptions = {}): this {
+        this.ingresses.push({ host, options });
+        return this;
+    }
 }
 
 export interface ExposeOptions {
@@ -292,12 +308,6 @@ export interface ExposeOptions {
     annotations?: Record<string, string>;
     /** Ingress labels. Default the app's labels; pass `{}` to omit them. */
     labels?: Record<string, string>;
-}
-
-/** A deployed container workload; returned by `addDocker`. */
-export interface DockerHandle {
-    readonly name: string;
-    expose(host: string, options?: ExposeOptions): DockerHandle;
 }
 
 // --- builder --------------------------------------------------------------
@@ -313,6 +323,7 @@ export class KirDevApp {
     private readonly syncWaves: boolean;
     private readonly devSecrets?: Record<string, string>;
     private readonly declaredSecrets = new Set<string>();
+    private readonly dockerBuilders: DockerBuilder[] = [];
     /** The standard `app.kubernetes.io/*` labels, merged with `options.labels`. */
     readonly labels: Record<string, string>;
 
@@ -372,9 +383,10 @@ export class KirDevApp {
     }
 
     /** Register a key of a manual secret; creates `${name}-secrets` on first use. */
-    ensureManualSecret(secret: string, key: string): void {
-        const devData = environment.environment == "Development" && secret === `${this.name}-secrets`;
-        this.declareSecret(secret, devData ? this.devSecrets : undefined);
+    appSecrets(): string {
+        const name = `${this.name}-secrets`;
+        this.declareSecret(name, environment.environment == "Development" ? this.devSecrets : undefined);
+        return name;
     }
 
     private toEnvVars(spec: EnvSpec): kube.EnvVar[] {
@@ -693,9 +705,15 @@ export class KirDevApp {
 
     // --- workload ---------------------------------------------------------
 
-    addDocker(options: DockerOptions): DockerHandle {
-        const name = this.name;
-        const base = options.name ?? name;
+    addDocker(options: DockerOptions): DockerBuilder {
+        const workload = new DockerBuilder(options);
+        this.dockerBuilders.push(workload);
+        return workload;
+    }
+
+    private materializeDocker(workload: DockerBuilder): void {
+        const options = workload.options;
+        const base = options.name ?? this.name;
         const containerName = options.containerName ?? base;
         const portName = "http";
         const labels = { ...(options.labels ?? this.labels) };
@@ -710,9 +728,7 @@ export class KirDevApp {
             });
         }
 
-        if (options.secrets) {
-            this.declareSecret(options.secrets.name ?? `${base}-secrets`, options.secrets.stringData);
-        }
+        const secrets = this.appSecrets();
 
         new kube.KubeService(this.chart, `${base}-service`, {
             metadata: { name: base, labels },
@@ -722,11 +738,8 @@ export class KirDevApp {
             },
         });
 
-        const envFrom: kube.EnvFromSource[] = [];
-        if (options.config) envFrom.push({ configMapRef: { name: `${base}-config` } });
-        for (const secretName of options.envFromSecrets ?? []) {
-            envFrom.push({ secretRef: { name: secretName } });
-        }
+        const envFrom: kube.EnvFromSource[] = [{ secretRef: { name: secrets } }];
+        if (options.config) envFrom.unshift({ configMapRef: { name: `${base}-config` } });
 
         new kube.KubeDeployment(this.chart, `${base}-deployment`, {
             metadata: { name: base, labels },
@@ -742,9 +755,9 @@ export class KirDevApp {
                                 name: containerName,
                                 image: options.image,
                                 imagePullPolicy: options.imagePullPolicy ?? "IfNotPresent",
-                                ports: [{ containerPort: options.port, protocol: "TCP", name: portName }],
+                                ports: [{ containerPort: workload.portNumber, protocol: "TCP", name: portName }],
                                 env: options.env ? this.toEnvVars(options.env) : undefined,
-                                envFrom: envFrom.length > 0 ? envFrom : undefined,
+                                envFrom,
                                 startupProbe: options.startupProbe
                                     ? httpProbe(options.startupProbe, portName)
                                     : undefined,
@@ -763,14 +776,9 @@ export class KirDevApp {
             },
         });
 
-        const handle: DockerHandle = {
-            name: base,
-            expose: (host, options = {}) => {
-                this.addIngress(base, host, options);
-                return handle;
-            },
-        };
-        return handle;
+        for (const ingress of workload.ingresses) {
+            this.addIngress(base, ingress.host, ingress.options);
+        }
     }
 
     private addIngress(service: string, host: string, options: ExposeOptions = {}): void {
@@ -823,6 +831,7 @@ export class KirDevApp {
     }
 
     synth(): void {
+        for (const workload of this.dockerBuilders) this.materializeDocker(workload);
         this.app.synth();
     }
 

@@ -7,7 +7,7 @@
 import * as kube from "../imports/k8s";
 import * as traefik from "../imports/traefik.io.ts";
 import * as environment from "../.dev/environment.ts";
-import { createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
+import { createKirDevApp } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 // Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups
@@ -37,46 +37,45 @@ const s3 = app.addGarage({
     backup: { schedule: "45 3 * * *" },
 });
 
-const server = app.addDocker({
-    image: versions.image,
-    port: 3000,
-    env: {
-        DATABASE_URI: db.uri,
-        PAYLOAD_SECRET: manualSecret(),
-        S3_ACCESS_KEY_ID: s3.accessKeyId,
-        S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
-    },
-    config: {
-        NODE_ENV: "production",
-        NEXT_TELEMETRY_DISABLED: "1",
-        S3_BUCKET: "ehk-media",
-        S3_REGION: "us-east-1",
-        S3_ENDPOINT: "http://ehk-garage:3900",
-    },
-    // Hit a Payload route so Payload's initialization (including
-    // `prodMigrations`) completes before the pod reports Ready.
-    startupProbe: { path: "/admin", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 60 },
-    readinessProbe: { path: "/admin", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
-    livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
-});
-
-// The new site at `ehk.bme.hu`. Everything is served by the Payload app
-// except the legacy `/eszb` pages, which are still only on the old box.
-server.expose("ehk.bme.hu", {
-    paths: [
-        { path: "/eszb", service: "ehk-eszb" },
-        { path: "/", service: "ehk" },
-    ],
-});
-
-// The old site stays reachable at `ehk-regi.kir-dev.hu` while `ehk.bme.hu`
-// moves to the new app. Its DNS record points at the cluster, which terminates
-// TLS and proxies everything to the box with the Host it expects.
-server.expose("ehk-regi.kir-dev.hu", {
-    name: "ehk-regi",
-    middlewares: ["ehk-eszb-host-override@kubernetescrd"],
-    paths: [{ path: "/", service: "ehk-eszb" }],
-});
+const server = app
+    .addDocker({
+        image: versions.image,
+        env: {
+            DATABASE_URI: db.uri,
+            S3_ACCESS_KEY_ID: s3.accessKeyId,
+            S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
+        },
+        config: {
+            NODE_ENV: "production",
+            NEXT_TELEMETRY_DISABLED: "1",
+            S3_BUCKET: "ehk-media",
+            S3_REGION: "us-east-1",
+            S3_ENDPOINT: "http://ehk-garage:3900",
+        },
+        // Hit a Payload route so Payload's initialization (including
+        // `prodMigrations`) completes before the pod reports Ready.
+        startupProbe: { path: "/admin", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 60 },
+        readinessProbe: { path: "/admin", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
+        livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
+    })
+    .port(3000)
+    // The new site at `ehk.bme.hu`. Everything is served by the Payload app
+    // except the legacy `/eszb` pages, which are still only on the old box.
+    .publish("ehk.bme.hu", {
+        paths: [
+            { path: "/eszb", service: "ehk-eszb" },
+            { path: "/", service: "ehk" },
+        ],
+    })
+    // The old site stays reachable at `ehk-regi.kir-dev.hu` while `ehk.bme.hu`
+    // moves to the new app. Its DNS record points at the cluster, which
+    // terminates TLS and proxies everything to the box with the Host it
+    // expects.
+    .publish("ehk-regi.kir-dev.hu", {
+        name: "ehk-regi",
+        middlewares: ["ehk-eszb-host-override@kubernetescrd"],
+        paths: [{ path: "/", service: "ehk-eszb" }],
+    });
 
 app.configure(({ scope, app }) => {
     // The old EHK box at 152.66.125.225 only answers for the `ehk.bme.hu`
@@ -104,10 +103,10 @@ app.configure(({ scope, app }) => {
 // production load balancer.
 if (environment.environment == "Production") {
     server
-        .expose("ehk-de-most-mar-tenyleg.kir-dev.hu", { name: "ehk-temp" })
+        .publish("ehk-de-most-mar-tenyleg.kir-dev.hu", { name: "ehk-temp" })
         // Test the legacy `/eszb` proxy through the temp domain. A separate
         // Ingress keeps the host-override middleware off the `/` route above.
-        .expose("ehk-de-most-mar-tenyleg.kir-dev.hu", {
+        .publish("ehk-de-most-mar-tenyleg.kir-dev.hu", {
             name: "ehk-eszb-test",
             middlewares: ["ehk-eszb-host-override@kubernetescrd"],
             tlsSecretName: "ehk-temp-tls-cert",

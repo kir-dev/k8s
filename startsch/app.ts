@@ -38,50 +38,48 @@ const db = app.addPostgres({
     backup: production ? { schedule: "0 24 3 * * *", name: "startsch-backup" } : false,
 });
 
-const server = app.addDocker({
-    image: versions.image,
-    port: 8080,
-    imagePullPolicy: "Always",
-    labels: {
-        "app.kubernetes.io/name": "startsch",
-        "app.kubernetes.io/component": "server",
-    },
-    config: {
-        "Logging__LogLevel__Microsoft.AspNetCore.Authentication": "Warning",
-        "Logging__LogLevel__Microsoft.AspNetCore.Authorization": "Warning",
-        "Logging__LogLevel__Microsoft.AspNetCore.Components": "Warning",
-        "Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics": "Warning",
-        "Logging__LogLevel__Microsoft.AspNetCore.Hosting": "Information",
-        "Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides": "Warning",
-        "Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware": "Information",
-        "Logging__LogLevel__Microsoft.AspNetCore.Server": "Information",
-        "Logging__LogLevel__Microsoft.AspNetCore": "Warning",
-        "Logging__LogLevel__Microsoft.EntityFrameworkCore.Migrations": "Information",
-        "Logging__LogLevel__Microsoft.EntityFrameworkCore": "Information",
-        "Logging__LogLevel__Microsoft.Hosting": "Information",
-        Logging__LogLevel__StartSch: "Trace",
-        OTEL_EXPORTER_OTLP_ENDPOINT: "http://opentelemetry-collector.monitoring.svc.cluster.local:4317",
-        StartSch__PublicUrl: "https://start.sch.bme.hu",
-        StartSch__EnabledModules__All: production ? "true" : "false",
-    },
-    // Set manually:
-    //   AuthSch__ClientId:
-    //   AuthSch__ClientSecret:
-    //   KirMail__ApiKey:
-    //   Push__PrivateKey:
-    //   Push__PublicKey:
-    //   Push__Subject: mailto:
-    secrets: { name: "startsch-secrets" },
-    envFromSecrets: ["startsch-secrets"],
-    env: {
-        ConnectionStrings__Postgres: db.dotnetConnectionString(),
-    },
-    resources: {
-        limits: { cpu: "500m", memory: "500Mi", "ephemeral-storage": "200Mi" },
-        requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "0" },
-    },
-});
-
-server.expose("start.sch.bme.hu", { labels: {} });
+const server = app
+    .addDocker({
+        image: versions.image,
+        imagePullPolicy: "Always",
+        labels: {
+            "app.kubernetes.io/name": "startsch",
+            "app.kubernetes.io/component": "server",
+        },
+        config: {
+            "Logging__LogLevel__Microsoft.AspNetCore.Authentication": "Warning",
+            "Logging__LogLevel__Microsoft.AspNetCore.Authorization": "Warning",
+            "Logging__LogLevel__Microsoft.AspNetCore.Components": "Warning",
+            "Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics": "Warning",
+            "Logging__LogLevel__Microsoft.AspNetCore.Hosting": "Information",
+            "Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides": "Warning",
+            "Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware": "Information",
+            "Logging__LogLevel__Microsoft.AspNetCore.Server": "Information",
+            "Logging__LogLevel__Microsoft.AspNetCore": "Warning",
+            "Logging__LogLevel__Microsoft.EntityFrameworkCore.Migrations": "Information",
+            "Logging__LogLevel__Microsoft.EntityFrameworkCore": "Information",
+            "Logging__LogLevel__Microsoft.Hosting": "Information",
+            Logging__LogLevel__StartSch: "Trace",
+            OTEL_EXPORTER_OTLP_ENDPOINT: "http://opentelemetry-collector.monitoring.svc.cluster.local:4317",
+            StartSch__PublicUrl: "https://start.sch.bme.hu",
+            StartSch__EnabledModules__All: production ? "true" : "false",
+        },
+        // Set manually:
+        //   AuthSch__ClientId:
+        //   AuthSch__ClientSecret:
+        //   KirMail__ApiKey:
+        //   Push__PrivateKey:
+        //   Push__PublicKey:
+        //   Push__Subject: mailto:
+        env: {
+            ConnectionStrings__Postgres: db.dotnetConnectionString(),
+        },
+        resources: {
+            limits: { cpu: "500m", memory: "500Mi", "ephemeral-storage": "200Mi" },
+            requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "0" },
+        },
+    })
+    .port(8080)
+    .publish("start.sch.bme.hu", { labels: {} });
 
 export default app;
