@@ -728,8 +728,6 @@ export class KirDevApp {
             });
         }
 
-        const secrets = this.appSecrets();
-
         new kube.KubeService(this.chart, `${base}-service`, {
             metadata: { name: base, labels },
             spec: {
@@ -738,8 +736,8 @@ export class KirDevApp {
             },
         });
 
-        const envFrom: kube.EnvFromSource[] = [{ secretRef: { name: secrets } }];
-        if (options.config) envFrom.unshift({ configMapRef: { name: `${base}-config` } });
+        const envFrom: kube.EnvFromSource[] = [];
+        if (options.config) envFrom.push({ configMapRef: { name: `${base}-config` } });
 
         new kube.KubeDeployment(this.chart, `${base}-deployment`, {
             metadata: { name: base, labels },
@@ -757,7 +755,7 @@ export class KirDevApp {
                                 imagePullPolicy: options.imagePullPolicy ?? "IfNotPresent",
                                 ports: [{ containerPort: workload.portNumber, protocol: "TCP", name: portName }],
                                 env: options.env ? this.toEnvVars(options.env) : undefined,
-                                envFrom,
+                                envFrom: envFrom.length > 0 ? envFrom : undefined,
                                 startupProbe: options.startupProbe
                                     ? httpProbe(options.startupProbe, portName)
                                     : undefined,

@@ -7,7 +7,7 @@
 import * as kube from "../imports/k8s";
 import * as traefik from "../imports/traefik.io.ts";
 import * as environment from "../.dev/environment.ts";
-import { createKirDevApp } from "../.dev/kir-dev-app.ts";
+import { createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 // Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups
@@ -42,6 +42,7 @@ const server = app
         image: versions.image,
         env: {
             DATABASE_URI: db.uri,
+            PAYLOAD_SECRET: manualSecret(),
             S3_ACCESS_KEY_ID: s3.accessKeyId,
             S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
         },

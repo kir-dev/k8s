@@ -3,7 +3,7 @@
 // https://start.sch.bme.hu
 
 import * as environment from "../.dev/environment.ts";
-import { createKirDevApp } from "../.dev/kir-dev-app.ts";
+import { createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 const production = environment.environment == "Production";
@@ -73,6 +73,12 @@ const server = app
         //   Push__Subject: mailto:
         env: {
             ConnectionStrings__Postgres: db.dotnetConnectionString(),
+            AuthSch__ClientId: manualSecret(),
+            AuthSch__ClientSecret: manualSecret(),
+            KirMail__ApiKey: manualSecret(),
+            Push__PrivateKey: manualSecret(),
+            Push__PublicKey: manualSecret(),
+            Push__Subject: manualSecret(),
         },
         resources: {
             limits: { cpu: "500m", memory: "500Mi", "ephemeral-storage": "200Mi" },
