@@ -22,6 +22,7 @@ const app = createKirDevApp("startsch", {
 });
 
 const db = app.addPostgres({
+    image: "ghcr.io/cloudnative-pg/postgresql:17.5",
     imagePullPolicy: "Always",
     externalClusterName: "backblaze-backup",
     parameters: {

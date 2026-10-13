@@ -113,9 +113,6 @@ export interface ResourceSpec {
     requests?: Record<string, string>;
 }
 
-// Shared across all apps for now; centralized later.
-const POSTGRES_IMAGE = "ghcr.io/cloudnative-pg/postgresql:17.5";
-
 const POSTGRES_RESOURCES: Required<ResourceSpec> = {
     limits: { cpu: "500m", memory: "512Mi", "ephemeral-storage": "500Mi" },
     requests: { cpu: "100m", memory: "128Mi", "ephemeral-storage": "100Mi" },
@@ -161,18 +158,14 @@ export interface S3Handle {
     readonly clusterName: string;
     /** In-cluster endpoint, e.g. `http://ehk-garage:3900`. */
     readonly endpoint: string;
-    readonly region: string;
+    /** The first (usually only) bucket name. */
+    readonly bucket: string;
     readonly bucketNames: string[];
+    readonly region: string;
     /** The Secret the garage-operator writes the app's key pair into. */
     readonly credentialsSecret: string;
     readonly accessKeyId: SecretKeyRef;
     readonly secretAccessKey: SecretKeyRef;
-    /**
-     * The S3 connection as environment variables (spread into `env`):
-     * `<prefix>ENDPOINT`, `<prefix>BUCKET`, `<prefix>REGION`,
-     * `<prefix>ACCESS_KEY_ID`, `<prefix>SECRET_ACCESS_KEY`. Default prefix `S3_`.
-     */
-    env(prefix?: string): EnvSpec;
 }
 
 // --- options --------------------------------------------------------------
@@ -202,6 +195,8 @@ export interface KirDevAppOptions {
 }
 
 export interface PostgresOptions {
+    /** Postgres (CloudNativePG) image. Required; keep apps on the same major version on one image. */
+    image: string;
     instances?: number;
     imagePullPolicy?: string;
     storageClass?: string;
@@ -260,8 +255,8 @@ export interface DockerOptions {
     replicas?: number;
     imagePullPolicy?: string;
     /** Environment variables. String values go into the `<name>-config` ConfigMap;
-     *  values that reference a handle (`db.uri`, `manualSecret()`, `s3.env()`) become
-     *  per-key `secretKeyRef`s. */
+     *  values that reference a handle (`db.uri`, `manualSecret()`, `s3.accessKeyId`)
+     *  become per-key `secretKeyRef`s. */
     env?: EnvSpec;
     startupProbe?: ProbeOptions;
     readinessProbe?: ProbeOptions;
@@ -274,18 +269,30 @@ export interface DockerOptions {
 
 /** A container workload being built; returned by `addDocker`. */
 export class DockerBuilder {
-    /** @internal */ portNumber?: number;
-    /** @internal */ readonly ingresses: { host: string; options: ExposeOptions }[] = [];
+    /** @internal */ readonly ports: Port[] = [];
 
     constructor(readonly options: DockerOptions) {}
 
-    /** Declare the container port and create the workload's Service. */
-    port(port: number): this {
-        this.portNumber = port;
-        return this;
+    /** Declare a container port; the workload's Service exposes it. */
+    port(port: number, name?: string): Port {
+        const portName = name ?? (this.ports.length === 0 ? "http" : `port-${port}`);
+        const endpoint = new Port(this, portName, port);
+        this.ports.push(endpoint);
+        return endpoint;
     }
+}
 
-    /** Publish the workload at `host` through Traefik, with a cert-manager certificate. */
+/** A workload port; its Service is published via `.publish()`. */
+export class Port {
+    /** @internal */ readonly ingresses: { host: string; options: ExposeOptions }[] = [];
+
+    constructor(
+        /** @internal */ readonly workload: DockerBuilder,
+        readonly name: string,
+        readonly number: number,
+    ) {}
+
+    /** Publish this port at `host` through Traefik, with a cert-manager certificate. */
     publish(host: string, options: ExposeOptions = {}): this {
         this.ingresses.push({ host, options });
         return this;
@@ -385,7 +392,7 @@ export class KirDevApp {
 
     // --- postgres ---------------------------------------------------------
 
-    addPostgres(options: PostgresOptions = {}): PostgresHandle {
+    addPostgres(options: PostgresOptions): PostgresHandle {
         if (this.postgresAdded) throw new Error(`${this.name}: addPostgres can only be called once`);
         this.postgresAdded = true;
 
@@ -399,7 +406,7 @@ export class KirDevApp {
         const backupEnabled = this.resolveBackup(options.backup);
         const restore = options.restore === "latest";
         const externalClusterName = options.externalClusterName ?? "barman-backup";
-        const image = POSTGRES_IMAGE;
+        const image = options.image;
 
         const resources = options.resources ?? POSTGRES_RESOURCES;
         const baseSpec: cnpg.ClusterSpec = {
@@ -686,20 +693,12 @@ export class KirDevApp {
         const handle: S3Handle = {
             clusterName,
             endpoint: `http://${clusterName}:3900`,
-            region: "us-east-1",
+            bucket: buckets[0],
             bucketNames: buckets,
+            region: "us-east-1",
             credentialsSecret,
             accessKeyId: new SecretKeyRef(credentialsSecret, "access-key-id", "S3_ACCESS_KEY_ID"),
             secretAccessKey: new SecretKeyRef(credentialsSecret, "secret-access-key", "S3_SECRET_ACCESS_KEY"),
-            env(prefix = "S3_") {
-                return {
-                    [`${prefix}ENDPOINT`]: this.endpoint,
-                    [`${prefix}BUCKET`]: this.bucketNames[0],
-                    [`${prefix}REGION`]: this.region,
-                    [`${prefix}ACCESS_KEY_ID`]: this.accessKeyId,
-                    [`${prefix}SECRET_ACCESS_KEY`]: this.secretAccessKey,
-                };
-            },
         };
         return handle;
     }
@@ -716,13 +715,9 @@ export class KirDevApp {
         const options = workload.options;
         const base = options.name ?? this.name;
         const containerName = options.containerName ?? base;
-        const portName = "http";
-        const port = workload.portNumber;
+        const ports = workload.ports;
+        const defaultPortName = ports[0]?.name ?? "http";
         const labels = { ...(options.labels ?? this.labels) };
-
-        if (workload.ingresses.length > 0 && port === undefined) {
-            throw new Error(`${base}: publish() requires port()`);
-        }
 
         // String env values go into the ConfigMap; refs become per-key env vars.
         const configData: Record<string, string> = {};
@@ -741,13 +736,17 @@ export class KirDevApp {
             envFrom.push({ configMapRef: { name: `${base}-config` } });
         }
 
-        // `.port()` creates the Service; `.publish()` wires an Ingress to it.
-        if (port !== undefined) {
+        // `.port()` declares the Service; each port is published via `.publish()`.
+        if (ports.length > 0) {
             new kube.KubeService(this.chart, `${base}-service`, {
                 metadata: { name: base, labels },
                 spec: {
                     selector: labels,
-                    ports: [{ name: portName, port: 80, targetPort: kube.IntOrString.fromString(portName) }],
+                    ports: ports.map((port) => ({
+                        name: port.name,
+                        port: port.number,
+                        targetPort: kube.IntOrString.fromString(port.name),
+                    })),
                 },
             });
         }
@@ -767,19 +766,23 @@ export class KirDevApp {
                                 image: options.image,
                                 imagePullPolicy: options.imagePullPolicy ?? "IfNotPresent",
                                 ports:
-                                    port !== undefined
-                                        ? [{ containerPort: port, protocol: "TCP", name: portName }]
+                                    ports.length > 0
+                                        ? ports.map((port) => ({
+                                              containerPort: port.number,
+                                              protocol: "TCP",
+                                              name: port.name,
+                                          }))
                                         : undefined,
                                 env: envVars.length > 0 ? envVars : undefined,
                                 envFrom: envFrom.length > 0 ? envFrom : undefined,
                                 startupProbe: options.startupProbe
-                                    ? httpProbe(options.startupProbe, portName)
+                                    ? httpProbe(options.startupProbe, defaultPortName)
                                     : undefined,
                                 readinessProbe: options.readinessProbe
-                                    ? httpProbe(options.readinessProbe, portName)
+                                    ? httpProbe(options.readinessProbe, defaultPortName)
                                     : undefined,
                                 livenessProbe: options.livenessProbe
-                                    ? tcpProbe(options.livenessProbe, portName)
+                                    ? tcpProbe(options.livenessProbe, defaultPortName)
                                     : undefined,
                                 resources: kubeResources(options.resources ?? WORKLOAD_RESOURCES),
                             },
@@ -790,12 +793,14 @@ export class KirDevApp {
             },
         });
 
-        for (const ingress of workload.ingresses) {
-            this.addIngress(base, ingress.host, ingress.options);
+        for (const port of ports) {
+            for (const ingress of port.ingresses) {
+                this.addIngress(base, port.name, ingress.host, ingress.options);
+            }
         }
     }
 
-    private addIngress(service: string, host: string, options: ExposeOptions = {}): void {
+    private addIngress(service: string, portName: string, host: string, options: ExposeOptions = {}): void {
         const ingressName = options.name ?? this.name;
         const middlewares = options.middlewares ?? [];
 
@@ -808,7 +813,7 @@ export class KirDevApp {
             annotations["traefik.ingress.kubernetes.io/router.middlewares"] = middlewares.join(",");
         }
 
-        const paths = options.paths ?? [{ path: "/", pathType: "Prefix", service, port: "http" }];
+        const paths = options.paths ?? [{ path: "/", pathType: "Prefix", service, port: portName }];
         const labels = options.labels ?? this.labels;
 
         new kube.KubeIngress(this.chart, ingressName, {
