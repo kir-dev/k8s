@@ -34,7 +34,14 @@ const db = app.addPostgres({
     // In production the cluster was bootstrapped from the Backblaze backup, so
     // it recovers; in development it starts empty.
     restore: production ? "latest" : false,
-    backup: production ? { provider: b2.withPrefix(""), schedule: "0 24 3 * * *", name: "startsch-backup" } : false,
+    backup: production
+        ? {
+              provider: b2.withPrefix(""),
+              schedule: "0 24 3 * * *",
+              name: "startsch-backup",
+              secret: "startsch-backups-secrets",
+          }
+        : false,
 });
 
 const server = app

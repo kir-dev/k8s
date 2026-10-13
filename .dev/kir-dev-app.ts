@@ -65,7 +65,8 @@ export class Interpolated extends EnvRef {
         super();
     }
     apply(name: string, app: KirDevApp): kube.EnvVar[] {
-        const components = [...new Set(this.refs)].flatMap((ref) => ref.apply(ref.envName));
+        const unique = new Map(this.refs.map((ref) => [`${ref.secret}\0${ref.key}`, ref]));
+        const components = [...unique.values()].flatMap((ref) => ref.apply(ref.envName));
         return [...components, { name, value: this.value }];
     }
 }
@@ -214,8 +215,12 @@ export interface PostgresOptions {
     size?: string;
     parameters?: Record<string, string>;
     monitoring?: boolean;
-    /** Off-site Barman backups. */
-    backup?: false | { provider: BackupTarget; schedule?: string; name?: string };
+    /**
+     * Off-site Barman backups. `secret` is the name of the credentials Secret
+     * (default `<name>-db-backup-secrets`), pass the existing name of a running
+     * app to avoid a migration.
+     */
+    backup?: false | { provider: BackupTarget; schedule?: string; name?: string; secret?: string };
     /** `"latest"` bootstraps from the Barman ObjectStore instead of `initdb`. */
     restore?: false | "latest";
     /** Name of the `externalClusters` entry used for recovery. Default `barman-backup`. */
@@ -248,6 +253,13 @@ export interface S3BackupOptions {
     lifecycle?: "fresh" | "restore" | "restored";
     dataSize?: string;
     metadataSize?: string;
+    /**
+     * Override the restic repository Secret name per volume. Default
+     * `<app>-s3-backup-secrets` (single volume) or
+     * `<app>-s3-backup-secrets-<volume>`. Pass the existing names of a running
+     * app to avoid a migration.
+     */
+    secret?: (volume: string) => string;
 }
 
 export interface ProbeOptions {
@@ -344,6 +356,7 @@ export class KirDevApp {
     /** Ingresses registered during app definition; materialized in `.build()`. */
     private readonly routes: { service: string; port: string; host: string; options: ExposeOptions }[] = [];
     private postgresAdded = false;
+    private garageAdded = false;
     /** The standard `app.kubernetes.io/*` labels, merged with `options.labels`. */
     readonly labels: Record<string, string>;
 
@@ -472,7 +485,7 @@ export class KirDevApp {
         };
 
         if (backup) {
-            const secret = `${name}-db-backups-secrets`;
+            const secret = backup.secret ?? `${name}-db-backup-secrets`;
             this.declareBackupSecret(secret, ["ACCESS_KEY_ID", "ACCESS_SECRET_KEY"]);
 
             new barman.ObjectStore(this.scope, `${name}-backups`, {
@@ -549,6 +562,9 @@ export class KirDevApp {
     // --- s3 (garage) ------------------------------------------------------
 
     addGarage(options: S3Options): S3Handle {
+        if (this.garageAdded) throw new Error(`${this.name}: addGarage can only be called once`);
+        this.garageAdded = true;
+
         const name = this.name;
         const clusterName = options.clusterName ?? `${name}-garage`;
         const credentialsSecret = options.credentialsSecret ?? `${name}-garage-s3`;
@@ -699,6 +715,7 @@ export class KirDevApp {
                 schedule: backup.schedule,
                 retain: backup.retain,
                 pruneIntervalDays: backup.pruneIntervalDays,
+                secret: backup.secret,
             });
         }
 
@@ -906,6 +923,7 @@ export class KirDevApp {
         schedule?: string;
         retain?: { daily?: number; weekly?: number; monthly?: number };
         pruneIntervalDays?: number;
+        secret?: (volume: string) => string;
     }): void {
         for (const volume of options.volumes) {
             const sourceName = garageBackupName(volume.name, "backup");
@@ -916,9 +934,10 @@ export class KirDevApp {
             const restoreSnapshot = garageBackupName(volume.name, "restore-snap");
             // VolSync needs one repo Secret per PVC (`RESTIC_REPOSITORY` is unique).
             const secretName =
-                options.volumes.length === 1
-                    ? `${options.appName}-s3-backups-secrets`
-                    : `${options.appName}-s3-backups-secrets-${volume.name}`;
+                options.secret?.(volume.name) ??
+                (options.volumes.length === 1
+                    ? `${options.appName}-s3-backup-secrets`
+                    : `${options.appName}-s3-backup-secrets-${volume.name}`);
 
             new kube.KubeSecret(this.scope, secretName, {
                 metadata: {
