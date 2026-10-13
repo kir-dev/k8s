@@ -85,4 +85,4 @@ const server = app
     .port(8080)
     .publish("start.sch.bme.hu", { labels: {} });
 
-export default app;
+export default app.build();

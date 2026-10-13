@@ -76,25 +76,23 @@ http.publish("ehk-regi.kir-dev.hu", {
     paths: [{ path: "/", service: "ehk-eszb" }],
 });
 
-app.configure(({ scope, app }) => {
-    // The old EHK box at 152.66.125.225 only answers for the `ehk.bme.hu`
-    // vhost (any other Host gets a 404), so every request proxied there must
-    // carry that Host header; the `eszb-host-override` middleware below does
-    // exactly that. An ExternalName Service points Traefik straight at the
-    // box's IP without a manually managed EndpointSlice.
-    new kube.KubeService(scope, "ehk-eszb-service", {
-        metadata: { name: "ehk-eszb", labels: app.labels },
-        spec: {
-            type: "ExternalName",
-            externalName: "152.66.125.225",
-            ports: [{ name: "http", port: 80 }],
-        },
-    });
+// The old EHK box at 152.66.125.225 only answers for the `ehk.bme.hu` vhost
+// (any other Host gets a 404), so every request proxied there must carry that
+// Host header; the `eszb-host-override` middleware below does exactly that. An
+// ExternalName Service points Traefik straight at the box's IP without a
+// manually managed EndpointSlice.
+new kube.KubeService(app.scope, "ehk-eszb-service", {
+    metadata: { name: "ehk-eszb", labels: app.labels },
+    spec: {
+        type: "ExternalName",
+        externalName: "152.66.125.225",
+        ports: [{ name: "http", port: 80 }],
+    },
+});
 
-    new traefik.Middleware(scope, "ehk-eszb-host-override", {
-        metadata: { name: "eszb-host-override", labels: app.labels },
-        spec: { headers: { customRequestHeaders: { Host: "ehk.bme.hu" } } },
-    });
+new traefik.Middleware(app.scope, "ehk-eszb-host-override", {
+    metadata: { name: "eszb-host-override", labels: app.labels },
+    spec: { headers: { customRequestHeaders: { Host: "ehk.bme.hu" } } },
 });
 
 // Temporary placeholder domain for the new site, used until the `ehk.bme.hu`
@@ -112,4 +110,4 @@ if (environment.environment == "Production") {
         });
 }
 
-export default app;
+export default app.build();

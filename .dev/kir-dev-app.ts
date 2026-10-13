@@ -6,10 +6,11 @@
 // `ScheduledBackup`); Garage's volumes are backed up off-site with
 // VolSync/restic. Both share one Backblaze B2 bucket, split by prefix.
 //
-// Infra resources (`.postgres()`, `.s3()`) are declared before the workload
-// (`.addDocker()`) so the workload's `env` callback can bind to the Secret keys
-// the operators generate. Anything the builder doesn't model goes in
-// `.configure()`, which hands back the raw cdk8s scope and the resource handles.
+// Infra resources (`.addPostgres()`, `.addGarage()`) are declared before the
+// workload (`.addDocker()`) so the workload's `env` can reference the handles
+// they return. Anything the builder doesn't model is added to `.scope` with the
+// raw cdk8s APIs. Call `.build()` at the end to materialize the registered
+// workloads/routes and get the cdk8s `App`.
 
 import { ApiObject, App, Chart } from "cdk8s";
 import { Construct } from "constructs";
@@ -326,11 +327,12 @@ export interface ExposeOptions {
 // --- builder --------------------------------------------------------------
 
 export class KirDevApp {
-    readonly app: App;
     readonly name: string;
     readonly namespace: string;
-    /** The Chart resources are added to; also the `.configure()` scope. */
-    readonly chart: Construct;
+    /** The cdk8s `App`; add raw resources to `.scope` and call `.build()`. */
+    readonly app: App;
+    /** The Chart raw resources can be added to (the `.build()` scope). */
+    readonly scope: Construct;
 
     private readonly syncWaves: boolean;
     private readonly devSecrets?: Record<string, string>;
@@ -347,7 +349,7 @@ export class KirDevApp {
         this.devSecrets = options.devSecrets;
 
         this.app = new App();
-        this.chart = new Chart(this.app, "chart", { namespace: this.namespace });
+        this.scope = new Chart(this.app, "chart", { namespace: this.namespace });
         if (options.createNamespace ?? true) {
             const namespaceChart = new Chart(this.app, "namespace");
             new kube.KubeNamespace(namespaceChart, "namespace", { metadata: { name: this.namespace } });
@@ -381,7 +383,7 @@ export class KirDevApp {
     declareSecret(name: string, stringData?: Record<string, string>): void {
         if (this.declaredSecrets.has(name)) return;
         this.declaredSecrets.add(name);
-        new kube.KubeSecret(this.chart, name, {
+        new kube.KubeSecret(this.scope, name, {
             metadata: { name, ...this.waveAnnotation(-25) },
             stringData,
         });
@@ -469,7 +471,7 @@ export class KirDevApp {
             const secret = `${name}-db-backups-secrets`;
             this.declareBackupSecret(secret, ["ACCESS_KEY_ID", "ACCESS_SECRET_KEY"]);
 
-            new barman.ObjectStore(this.chart, `${name}-backups`, {
+            new barman.ObjectStore(this.scope, `${name}-backups`, {
                 metadata: {
                     name: `${name}-backups`,
                     ...this.waveAnnotation(-21),
@@ -494,7 +496,7 @@ export class KirDevApp {
             });
         }
 
-        new cnpg.Cluster(this.chart, clusterName, {
+        new cnpg.Cluster(this.scope, clusterName, {
             metadata: {
                 name: clusterName,
                 labels: {
@@ -510,7 +512,7 @@ export class KirDevApp {
 
         if (backup) {
             const scheduledBackupName = backup.name ?? `${name}-db-backup`;
-            new cnpg.ScheduledBackup(this.chart, scheduledBackupName, {
+            new cnpg.ScheduledBackup(this.scope, scheduledBackupName, {
                 metadata: { name: scheduledBackupName },
                 spec: {
                     cluster: { name: clusterName },
@@ -561,7 +563,7 @@ export class KirDevApp {
         const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
         const volumeSnapshotClassName = environment.environment == "Production" ? "memory" : "csi-hostpath-snapclass";
 
-        new garage.GarageAdminTokenV1Beta1(this.chart, `${clusterName}-admin`, {
+        new garage.GarageAdminTokenV1Beta1(this.scope, `${clusterName}-admin`, {
             metadata: {
                 name: `${clusterName}-admin`,
                 labels: garageLabels,
@@ -592,7 +594,7 @@ export class KirDevApp {
                 : undefined,
         });
 
-        new garage.GarageClusterV1Beta2(this.chart, clusterName, {
+        new garage.GarageClusterV1Beta2(this.scope, clusterName, {
             metadata: {
                 name: clusterName,
                 labels: garageLabels,
@@ -635,7 +637,7 @@ export class KirDevApp {
         });
 
         for (const bucket of buckets) {
-            new garage.GarageBucketV1Beta1(this.chart, bucket, {
+            new garage.GarageBucketV1Beta1(this.scope, bucket, {
                 metadata: {
                     name: bucket,
                     labels: garageLabels,
@@ -646,7 +648,7 @@ export class KirDevApp {
         }
 
         const keyName = buckets[0];
-        new garage.GarageKeyV1Beta1(this.chart, `${keyName}-key`, {
+        new garage.GarageKeyV1Beta1(this.scope, `${keyName}-key`, {
             metadata: {
                 name: keyName,
                 labels: garageLabels,
@@ -735,7 +737,7 @@ export class KirDevApp {
 
         const envFrom: kube.EnvFromSource[] = [];
         if (Object.keys(configData).length > 0) {
-            new kube.KubeConfigMap(this.chart, `${base}-config`, {
+            new kube.KubeConfigMap(this.scope, `${base}-config`, {
                 metadata: { name: `${base}-config`, ...this.waveAnnotation(-25) },
                 data: configData,
             });
@@ -744,7 +746,7 @@ export class KirDevApp {
 
         // `.port()` declares the Service; each port is published via `.publish()`.
         if (ports.length > 0) {
-            new kube.KubeService(this.chart, `${base}-service`, {
+            new kube.KubeService(this.scope, `${base}-service`, {
                 metadata: { name: base, labels },
                 spec: {
                     selector: labels,
@@ -757,7 +759,7 @@ export class KirDevApp {
             });
         }
 
-        new kube.KubeDeployment(this.chart, `${base}-deployment`, {
+        new kube.KubeDeployment(this.scope, `${base}-deployment`, {
             metadata: { name: base, labels },
             spec: {
                 replicas: options.replicas ?? 1,
@@ -822,7 +824,7 @@ export class KirDevApp {
         const paths = options.paths ?? [{ path: "/", pathType: "Prefix", service, port: portName }];
         const labels = options.labels ?? this.labels;
 
-        new kube.KubeIngress(this.chart, ingressName, {
+        new kube.KubeIngress(this.scope, ingressName, {
             metadata: {
                 name: ingressName,
                 ...(Object.keys(labels).length > 0 ? { labels } : {}),
@@ -849,15 +851,13 @@ export class KirDevApp {
         });
     }
 
-    /** Escape hatch: the raw cdk8s scope and the app. */
-    configure(fn: (context: { scope: Construct; app: KirDevApp }) => void): this {
-        fn({ scope: this.chart, app: this });
-        return this;
-    }
-
-    synth(): void {
+    /**
+     * Materialize the registered workloads (Service, ConfigMap, Deployment) and
+     * published routes (Ingresses), then return the cdk8s `App`.
+     */
+    build(): App {
         for (const workload of this.dockerBuilders) this.materializeDocker(workload);
-        this.app.synth();
+        return this.app;
     }
 
     // --- internals --------------------------------------------------------
@@ -866,7 +866,7 @@ export class KirDevApp {
     private declareBackupSecret(name: string, keys: string[]): void {
         if (this.declaredSecrets.has(name)) return;
         this.declaredSecrets.add(name);
-        new kube.KubeSecret(this.chart, name, {
+        new kube.KubeSecret(this.scope, name, {
             metadata: {
                 name,
                 annotations: {
@@ -905,7 +905,7 @@ export class KirDevApp {
                     ? `${options.appName}-s3-backups-secrets`
                     : `${options.appName}-s3-backups-secrets-${volume.name}`;
 
-            new kube.KubeSecret(this.chart, secretName, {
+            new kube.KubeSecret(this.scope, secretName, {
                 metadata: {
                     name: secretName,
                     annotations: {
@@ -921,7 +921,7 @@ export class KirDevApp {
             });
 
             if (options.lifecycle === "restore") {
-                new kube.KubePersistentVolumeClaim(this.chart, `${sourceName}-restore-pvc`, {
+                new kube.KubePersistentVolumeClaim(this.scope, `${sourceName}-restore-pvc`, {
                     metadata: {
                         name: restorePvc,
                         annotations: {
@@ -936,7 +936,7 @@ export class KirDevApp {
                     },
                 });
 
-                new ApiObject(this.chart, `${sourceName}-destination`, {
+                new ApiObject(this.scope, `${sourceName}-destination`, {
                     apiVersion: "volsync.backube/v1alpha1",
                     kind: "ReplicationDestination",
                     metadata: {
@@ -955,7 +955,7 @@ export class KirDevApp {
                     },
                 });
             } else {
-                new ApiObject(this.chart, `${sourceName}-source`, {
+                new ApiObject(this.scope, `${sourceName}-source`, {
                     apiVersion: "volsync.backube/v1alpha1",
                     kind: "ReplicationSource",
                     metadata: {
