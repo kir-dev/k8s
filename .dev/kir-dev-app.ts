@@ -203,8 +203,6 @@ export interface KirDevAppOptions {
     labels?: Record<string, string>;
     /** Emit `argocd.argoproj.io/sync-wave` annotations. Default true. */
     syncWaves?: boolean;
-    /** Values merged into `${name}-secrets` in the Development environment only. */
-    devSecrets?: Record<string, string>;
 }
 
 export interface PostgresOptions {
@@ -335,7 +333,6 @@ export class KirDevApp {
     readonly scope: Construct;
 
     private readonly syncWaves: boolean;
-    private readonly devSecrets?: Record<string, string>;
     private readonly declaredSecrets = new Set<string>();
     private readonly dockerBuilders: DockerBuilder[] = [];
     private postgresAdded = false;
@@ -346,7 +343,6 @@ export class KirDevApp {
         this.name = name;
         this.namespace = options.namespace ?? name;
         this.syncWaves = options.syncWaves ?? true;
-        this.devSecrets = options.devSecrets;
 
         this.app = new App();
         this.scope = new Chart(this.app, "chart", { namespace: this.namespace });
@@ -392,7 +388,7 @@ export class KirDevApp {
     /** Register a key of a manual secret; creates `${name}-secrets` on first use. */
     appSecrets(): string {
         const name = `${this.name}-secrets`;
-        this.declareSecret(name, environment.environment == "Development" ? this.devSecrets : undefined);
+        this.declareSecret(name);
         return name;
     }
 

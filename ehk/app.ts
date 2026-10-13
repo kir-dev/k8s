@@ -23,9 +23,6 @@ const b2 = createBackblaze({
 const app = createKirDevApp("ehk", {
     namespace: "ehk",
     createNamespace: true,
-    // Set manually in production:
-    //   PAYLOAD_SECRET:
-    devSecrets: { PAYLOAD_SECRET: "local-development-secret" },
 });
 
 const db = app.addPostgres({
@@ -49,7 +46,9 @@ const server = app.addDocker({
         S3_ACCESS_KEY_ID: s3.accessKeyId,
         S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
         DATABASE_URI: db.uri,
-        PAYLOAD_SECRET: manualSecret(),
+        // Set manually in production:
+        //   PAYLOAD_SECRET:
+        PAYLOAD_SECRET: environment.environment == "Development" ? "local-development-secret" : manualSecret(),
     },
     // Hit a Payload route so Payload's initialization (including
     // `prodMigrations`) completes before the pod reports Ready.
