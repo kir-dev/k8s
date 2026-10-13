@@ -40,9 +40,7 @@ const server = app.addDocker("server", {
         Logging: "Warning",
         S3: s3.whatever,
         ConnectionString: `Host=${db.host}...`,
-        ...manualSecrets([
-            "AuthSch__Secret"
-        ]),
+        AuthSch__Secret: manualSecret(),
     }
 });
 ```
