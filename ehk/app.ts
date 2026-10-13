@@ -68,8 +68,9 @@ http.publish("ehk.bme.hu", {
 });
 // The old site stays reachable at `ehk-regi.kir-dev.hu` while `ehk.bme.hu`
 // moves to the new app. Its DNS record points at the cluster, which terminates
-// TLS and proxies everything to the box with the Host it expects.
-http.publish("ehk-regi.kir-dev.hu", {
+// TLS and proxies everything to the box with the Host it expects. This routes
+// to the legacy `ehk-eszb` Service, not the app's own workload.
+app.publish("ehk-regi.kir-dev.hu", {
     name: "ehk-regi",
     middlewares: ["ehk-eszb-host-override@kubernetescrd"],
     paths: [{ path: "/", service: "ehk-eszb" }],
@@ -98,15 +99,15 @@ new traefik.Middleware(app.scope, "ehk-eszb-host-override", {
 // DNS record points at the cluster. Production only: it resolves to the
 // production load balancer.
 if (environment.environment == "Production") {
-    http.publish("ehk-de-most-mar-tenyleg.kir-dev.hu", { name: "ehk-temp" })
-        // Test the legacy `/eszb` proxy through the temp domain. A separate
-        // Ingress keeps the host-override middleware off the `/` route above.
-        .publish("ehk-de-most-mar-tenyleg.kir-dev.hu", {
-            name: "ehk-eszb-test",
-            middlewares: ["ehk-eszb-host-override@kubernetescrd"],
-            tlsSecretName: "ehk-temp-tls-cert",
-            paths: [{ path: "/eszb", service: "ehk-eszb" }],
-        });
+    http.publish("ehk-de-most-mar-tenyleg.kir-dev.hu", { name: "ehk-temp" });
+    // Test the legacy `/eszb` proxy through the temp domain. A separate Ingress
+    // keeps the host-override middleware off the `/` route above.
+    app.publish("ehk-de-most-mar-tenyleg.kir-dev.hu", {
+        name: "ehk-eszb-test",
+        middlewares: ["ehk-eszb-host-override@kubernetescrd"],
+        tlsSecretName: "ehk-temp-tls-cert",
+        paths: [{ path: "/eszb", service: "ehk-eszb" }],
+    });
 }
 
 export default app.build();

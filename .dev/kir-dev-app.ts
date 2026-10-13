@@ -283,7 +283,15 @@ export interface DockerOptions {
 export class DockerBuilder {
     /** @internal */ readonly ports: Port[] = [];
 
-    constructor(readonly options: DockerOptions) {}
+    constructor(
+        /** @internal */ readonly app: KirDevApp,
+        readonly options: DockerOptions,
+    ) {}
+
+    /** @internal */
+    get serviceName(): string {
+        return this.options.name ?? this.app.name;
+    }
 
     /** Declare a container port; the workload's Service exposes it. */
     port(port: number, name?: string): Port {
@@ -294,19 +302,17 @@ export class DockerBuilder {
     }
 }
 
-/** A workload port; its Service is published via `.publish()`. */
+/** A workload port; publish it to route the app's own Service at a host. */
 export class Port {
-    /** @internal */ readonly ingresses: { host: string; options: ExposeOptions }[] = [];
-
     constructor(
         /** @internal */ readonly workload: DockerBuilder,
         readonly name: string,
         readonly number: number,
     ) {}
 
-    /** Publish this port at `host` through Traefik, with a cert-manager certificate. */
+    /** Route `host` to this workload's Service through Traefik. */
     publish(host: string, options: ExposeOptions = {}): this {
-        this.ingresses.push({ host, options });
+        this.workload.app.registerRoute(this.workload.serviceName, this.name, host, options);
         return this;
     }
 }
@@ -335,6 +341,8 @@ export class KirDevApp {
     private readonly syncWaves: boolean;
     private readonly declaredSecrets = new Set<string>();
     private readonly dockerBuilders: DockerBuilder[] = [];
+    /** Ingresses registered during app definition; materialized in `.build()`. */
+    private readonly routes: { service: string; port: string; host: string; options: ExposeOptions }[] = [];
     private postgresAdded = false;
     /** The standard `app.kubernetes.io/*` labels, merged with `options.labels`. */
     readonly labels: Record<string, string>;
@@ -710,9 +718,25 @@ export class KirDevApp {
     // --- workload ---------------------------------------------------------
 
     addDocker(options: DockerOptions): DockerBuilder {
-        const workload = new DockerBuilder(options);
+        const workload = new DockerBuilder(this, options);
         this.dockerBuilders.push(workload);
         return workload;
+    }
+
+    /**
+     * Register a route (Ingress) from `host` to a Service. Used for routes that
+     * don't target the app's own workload — e.g. an ExternalName Service.
+     * `options.paths` entries may specify their own `service`/`port`; otherwise
+     * they default to `service`/`port` (the app name and `http` here).
+     */
+    publish(host: string, options: ExposeOptions = {}): this {
+        this.registerRoute(this.name, "http", host, options);
+        return this;
+    }
+
+    /** @internal */
+    registerRoute(service: string, port: string, host: string, options: ExposeOptions): void {
+        this.routes.push({ service, port, host, options });
     }
 
     private materializeDocker(workload: DockerBuilder): void {
@@ -796,12 +820,6 @@ export class KirDevApp {
                 },
             },
         });
-
-        for (const port of ports) {
-            for (const ingress of port.ingresses) {
-                this.addIngress(base, port.name, ingress.host, ingress.options);
-            }
-        }
     }
 
     private addIngress(service: string, portName: string, host: string, options: ExposeOptions = {}): void {
@@ -853,6 +871,7 @@ export class KirDevApp {
      */
     build(): App {
         for (const workload of this.dockerBuilders) this.materializeDocker(workload);
+        for (const route of this.routes) this.addIngress(route.service, route.port, route.host, route.options);
         return this.app;
     }
 
