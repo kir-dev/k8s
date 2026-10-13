@@ -30,7 +30,7 @@ const db = app.addPostgres({
     backup: {
         provider: b2.withPrefix("postgres/"),
         schedule: "0 18 3 * * *",
-        backblazeCredentialSecret: "ehk-backups-secrets",
+        backblazeCredentialsSecret: "ehk-backups-secrets",
     },
 });
 
@@ -39,8 +39,8 @@ const s3 = app.addGarage({
     backup: {
         provider: b2.withPrefix("restic/"),
         schedule: "45 3 * * *",
-        dataBackblazeCredentialSecret: "garage-data-backup",
-        metadataBackblazeCredentialSecret: "garage-metadata-backup",
+        dataBackblazeCredentialsSecret: "garage-data-backup",
+        metadataBackblazeCredentialsSecret: "garage-metadata-backup",
     },
 });
 

@@ -228,7 +228,7 @@ export interface PostgresOptions {
                * `<name>-db-backup-secrets`; pass the existing name of a running app to
                * avoid a migration.
                */
-              backblazeCredentialSecret?: string;
+              backblazeCredentialsSecret?: string;
           };
     /** `"latest"` bootstraps from the Barman ObjectStore instead of `initdb`. */
     restore?: false | "latest";
@@ -267,8 +267,8 @@ export interface S3BackupOptions {
      * `<app>-s3-backup-secrets-data` and `<app>-s3-backup-secrets-metadata`;
      * pass the existing names of a running app to avoid a migration.
      */
-    dataBackblazeCredentialSecret?: string;
-    metadataBackblazeCredentialSecret?: string;
+    dataBackblazeCredentialsSecret?: string;
+    metadataBackblazeCredentialsSecret?: string;
 }
 
 export interface ProbeOptions {
@@ -494,7 +494,7 @@ export class KirDevApp {
         };
 
         if (backup) {
-            const secret = backup.backblazeCredentialSecret ?? `${name}-db-backup-secrets`;
+            const secret = backup.backblazeCredentialsSecret ?? `${name}-db-backup-secrets`;
             this.declareBackupSecret(secret, ["ACCESS_KEY_ID", "ACCESS_SECRET_KEY"]);
 
             new barman.ObjectStore(this.scope, `${name}-backups`, {
@@ -724,8 +724,8 @@ export class KirDevApp {
                 retain: backup.retain,
                 pruneIntervalDays: backup.pruneIntervalDays,
                 secrets: {
-                    data: backup.dataBackblazeCredentialSecret ?? `${name}-s3-backup-secrets-data`,
-                    metadata: backup.metadataBackblazeCredentialSecret ?? `${name}-s3-backup-secrets-metadata`,
+                    data: backup.dataBackblazeCredentialsSecret ?? `${name}-s3-backup-secrets-data`,
+                    metadata: backup.metadataBackblazeCredentialsSecret ?? `${name}-s3-backup-secrets-metadata`,
                 },
             });
         }
