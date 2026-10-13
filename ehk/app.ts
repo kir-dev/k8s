@@ -7,20 +7,22 @@
 import * as kube from "../imports/k8s";
 import * as traefik from "../imports/traefik.io.ts";
 import * as environment from "../.dev/environment.ts";
-import { createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
+import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 // Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups
 // (`postgres/` prefix) and the VolSync/restic garage-volume backups
 // (`restic/` prefix).
 const backupBucket = environment.environment == "Production" ? "kir-dev-ehk-backups" : "ehk-test";
-const backupEndpoint = "https://s3.eu-central-003.backblazeb2.com";
-const backupRegion = "eu-central-003";
+const b2 = createBackblaze({
+    endpoint: "https://s3.eu-central-003.backblazeb2.com",
+    region: "eu-central-003",
+    bucket: backupBucket,
+});
 
 const app = createKirDevApp("ehk", {
     namespace: "ehk",
     createNamespace: true,
-    backups: { endpoint: backupEndpoint, region: backupRegion, bucket: backupBucket },
     // Set manually in production:
     //   PAYLOAD_SECRET:
     devSecrets: { PAYLOAD_SECRET: "local-development-secret" },
@@ -28,12 +30,12 @@ const app = createKirDevApp("ehk", {
 
 const db = app.addPostgres({
     image: "ghcr.io/cloudnative-pg/postgresql:17.5",
-    backup: { schedule: "0 18 3 * * *" },
+    backup: { provider: b2.withPrefix("postgres/"), schedule: "0 18 3 * * *" },
 });
 
 const s3 = app.addGarage({
     buckets: ["ehk-media"],
-    backup: { schedule: "45 3 * * *" },
+    backup: { provider: b2.withPrefix("restic/"), schedule: "45 3 * * *" },
 });
 
 const server = app.addDocker({

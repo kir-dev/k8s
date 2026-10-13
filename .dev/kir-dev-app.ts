@@ -170,15 +170,29 @@ export interface S3Handle {
 
 // --- options --------------------------------------------------------------
 
-export interface BackupsOptions {
+export interface BackblazeOptions {
     /** S3-compatible endpoint, e.g. Backblaze B2. */
     endpoint: string;
     region: string;
     bucket: string;
-    /** Secret holding `ACCESS_KEY_ID` / `ACCESS_SECRET_KEY`. Default `<name>-backups-secrets`. */
-    credentialsSecret?: string;
-    /** Prefix within the bucket for Postgres backups. Default `postgres/`. */
-    postgresPrefix?: string;
+}
+
+/** A Backblaze bucket plus the prefix a component's backups live under. */
+export interface BackupTarget extends BackblazeOptions {
+    prefix: string;
+}
+
+export class Backblaze {
+    constructor(private readonly options: BackblazeOptions) {}
+
+    /** Bind the provider to a prefix within the bucket (e.g. `"postgres/"`, `"restic/"`). */
+    withPrefix(prefix: string): BackupTarget {
+        return { ...this.options, prefix };
+    }
+}
+
+export function createBackblaze(options: BackblazeOptions): Backblaze {
+    return new Backblaze(options);
 }
 
 export interface KirDevAppOptions {
@@ -186,8 +200,6 @@ export interface KirDevAppOptions {
     createNamespace?: boolean;
     /** Merged into the standard `app.kubernetes.io/*` labels. */
     labels?: Record<string, string>;
-    /** Required for `.postgres({ backup })` / `.s3({ backup })`. */
-    backups?: BackupsOptions;
     /** Emit `argocd.argoproj.io/sync-wave` annotations. Default true. */
     syncWaves?: boolean;
     /** Values merged into `${name}-secrets` in the Development environment only. */
@@ -203,8 +215,8 @@ export interface PostgresOptions {
     size?: string;
     parameters?: Record<string, string>;
     monitoring?: boolean;
-    /** Off-site Barman backups. Defaults to enabled when the app has `backups` configured. */
-    backup?: false | { schedule?: string; name?: string };
+    /** Off-site Barman backups. */
+    backup?: false | { provider: BackupTarget; schedule?: string; name?: string };
     /** `"latest"` bootstraps from the Barman ObjectStore instead of `initdb`. */
     restore?: false | "latest";
     /** Name of the `externalClusters` entry used for recovery. Default `barman-backup`. */
@@ -222,6 +234,7 @@ export interface S3Options {
 }
 
 export interface S3BackupOptions {
+    provider: BackupTarget;
     schedule?: string;
     retain?: { daily?: number; weekly?: number; monthly?: number };
     pruneIntervalDays?: number;
@@ -319,7 +332,6 @@ export class KirDevApp {
     /** The Chart resources are added to; also the `.configure()` scope. */
     readonly chart: Construct;
 
-    private readonly backups?: BackupsOptions & { credentialsSecret: string; postgresPrefix: string };
     private readonly syncWaves: boolean;
     private readonly devSecrets?: Record<string, string>;
     private readonly declaredSecrets = new Set<string>();
@@ -348,14 +360,6 @@ export class KirDevApp {
             "app.kubernetes.io/part-of": name,
             ...options.labels,
         };
-
-        if (options.backups) {
-            this.backups = {
-                credentialsSecret: `${name}-backups-secrets`,
-                postgresPrefix: "postgres/",
-                ...options.backups,
-            };
-        }
     }
 
     /** Sync-wave annotation, or nothing when `syncWaves` is disabled. */
@@ -403,7 +407,8 @@ export class KirDevApp {
         const clusterName = `${name}-db`;
         const secretName = `${clusterName}-app`;
 
-        const backupEnabled = this.resolveBackup(options.backup);
+        const backup = typeof options.backup === "object" ? options.backup : undefined;
+        const backupEnabled = backup !== undefined;
         const restore = options.restore === "latest";
         const externalClusterName = options.externalClusterName ?? "barman-backup";
         const image = options.image;
@@ -460,9 +465,10 @@ export class KirDevApp {
                 : {}),
         };
 
-        if (this.backups) this.emitBackupSecret();
+        if (backup) {
+            const secret = `${name}-db-backups-secrets`;
+            this.declareBackupSecret(secret, ["ACCESS_KEY_ID", "ACCESS_SECRET_KEY"]);
 
-        if (backupEnabled) {
             new barman.ObjectStore(this.chart, `${name}-backups`, {
                 metadata: {
                     name: `${name}-backups`,
@@ -473,11 +479,11 @@ export class KirDevApp {
                         resources: barmanResources(BARMAN_RESOURCES),
                     },
                     configuration: {
-                        destinationPath: `s3://${this.backups!.bucket}/${this.backups!.postgresPrefix}`,
-                        endpointUrl: this.backups!.endpoint,
+                        destinationPath: `s3://${backup.provider.bucket}/${backup.provider.prefix}`,
+                        endpointUrl: backup.provider.endpoint,
                         s3Credentials: {
-                            accessKeyId: { name: this.backups!.credentialsSecret, key: "ACCESS_KEY_ID" },
-                            secretAccessKey: { name: this.backups!.credentialsSecret, key: "ACCESS_SECRET_KEY" },
+                            accessKeyId: { name: secret, key: "ACCESS_KEY_ID" },
+                            secretAccessKey: { name: secret, key: "ACCESS_SECRET_KEY" },
                         },
                         wal: {
                             compression: barman.ObjectStoreSpecConfigurationWalCompression.GZIP,
@@ -502,8 +508,7 @@ export class KirDevApp {
             spec: clusterSpec,
         });
 
-        if (backupEnabled) {
-            const backup = typeof options.backup === "object" ? options.backup : {};
+        if (backup) {
             const scheduledBackupName = backup.name ?? `${name}-db-backup`;
             new cnpg.ScheduledBackup(this.chart, scheduledBackupName, {
                 metadata: { name: scheduledBackupName },
@@ -544,9 +549,8 @@ export class KirDevApp {
         const buckets = options.buckets;
         if (buckets.length === 0) throw new Error(`s3() for ${name}: at least one bucket is required`);
 
-        const backupEnabled = this.resolveBackup(options.backup);
-        const backup = typeof options.backup === "object" ? options.backup : {};
-        const lifecycle = backup.lifecycle ?? "fresh";
+        const backup = typeof options.backup === "object" ? options.backup : undefined;
+        const lifecycle = backup?.lifecycle ?? "fresh";
         const restoring = lifecycle === "restore" || lifecycle === "restored";
 
         const garageLabels = {
@@ -570,8 +574,8 @@ export class KirDevApp {
         });
 
         const volumes = [
-            { name: "data", size: backup.dataSize ?? "5Gi" },
-            { name: "metadata", size: backup.metadataSize ?? "1Gi" },
+            { name: "data", size: backup?.dataSize ?? "5Gi" },
+            { name: "metadata", size: backup?.metadataSize ?? "1Gi" },
         ] as const;
 
         const volumeStorage = (volume: (typeof volumes)[number]) => ({
@@ -677,8 +681,10 @@ export class KirDevApp {
             },
         });
 
-        if (backupEnabled) {
+        if (backup) {
             this.emitGarageBackups({
+                appName: name,
+                provider: backup.provider,
                 clusterName,
                 volumes,
                 storageClassName,
@@ -856,36 +862,27 @@ export class KirDevApp {
 
     // --- internals --------------------------------------------------------
 
-    private resolveBackup(backup: unknown): boolean {
-        if (backup === false) return false;
-        if (this.backups == null) {
-            if (backup != null)
-                throw new Error(`${this.name}: backups requested but no app-level \`backups\` configured`);
-            return false;
-        }
-        return true;
-    }
-
-    private emitBackupSecret(): void {
-        const credentialsSecret = this.backups!.credentialsSecret;
-        new kube.KubeSecret(this.chart, credentialsSecret, {
+    /** Create a metadata-only Secret whose values are filled in by hand. */
+    private declareBackupSecret(name: string, keys: string[]): void {
+        if (this.declaredSecrets.has(name)) return;
+        this.declaredSecrets.add(name);
+        new kube.KubeSecret(this.chart, name, {
             metadata: {
-                name: credentialsSecret,
+                name,
                 annotations: {
                     ...this.wave(-22),
                     // The credentials are filled in manually; keep ArgoCD from
                     // pruning the extra `data` keys it doesn't declare.
                     "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+                    "kir-dev.hu/required-keys": keys.join(","),
                 },
             },
-            // Set manually:
-            // stringData:
-            //   ACCESS_KEY_ID:
-            //   ACCESS_SECRET_KEY:
         });
     }
 
     private emitGarageBackups(options: {
+        appName: string;
+        provider: BackupTarget;
         clusterName: string;
         volumes: readonly { name: string; size: string }[];
         storageClassName: string;
@@ -895,38 +892,36 @@ export class KirDevApp {
         retain?: { daily?: number; weekly?: number; monthly?: number };
         pruneIntervalDays?: number;
     }): void {
-        const name = this.name;
-        const backups = this.backups!;
-
         for (const volume of options.volumes) {
-            const repository = garageBackupName(volume.name, "backup");
+            const sourceName = garageBackupName(volume.name, "backup");
             // The PVC names the garage-operator's StatefulSet creates:
             // `<volumeClaimTemplate>-<statefulset>-<ordinal>`.
             const pvc = `${volume.name}-${options.clusterName}-storage-0-0`;
             const restorePvc = garageBackupName(volume.name, "restore");
             const restoreSnapshot = garageBackupName(volume.name, "restore-snap");
+            // VolSync needs one repo Secret per PVC (`RESTIC_REPOSITORY` is unique).
+            const secretName =
+                options.volumes.length === 1
+                    ? `${options.appName}-s3-backups-secrets`
+                    : `${options.appName}-s3-backups-secrets-${volume.name}`;
 
-            new kube.KubeSecret(this.chart, repository, {
+            new kube.KubeSecret(this.chart, secretName, {
                 metadata: {
-                    name: repository,
+                    name: secretName,
                     annotations: {
                         ...this.wave(-26),
                         "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+                        "kir-dev.hu/required-keys": "RESTIC_PASSWORD,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY",
                     },
                 },
                 stringData: {
-                    RESTIC_REPOSITORY: `s3:${backups.endpoint}/${backups.bucket}/restic/${pvc}`,
-                    AWS_DEFAULT_REGION: backups.region,
+                    RESTIC_REPOSITORY: `s3:${options.provider.endpoint}/${options.provider.bucket}/${options.provider.prefix}${pvc}`,
+                    AWS_DEFAULT_REGION: options.provider.region,
                 },
-                // Set manually:
-                // stringData:
-                //   RESTIC_PASSWORD:
-                //   AWS_ACCESS_KEY_ID:
-                //   AWS_SECRET_ACCESS_KEY:
             });
 
             if (options.lifecycle === "restore") {
-                new kube.KubePersistentVolumeClaim(this.chart, `${repository}-restore-pvc`, {
+                new kube.KubePersistentVolumeClaim(this.chart, `${sourceName}-restore-pvc`, {
                     metadata: {
                         name: restorePvc,
                         annotations: {
@@ -941,17 +936,17 @@ export class KirDevApp {
                     },
                 });
 
-                new ApiObject(this.chart, `${repository}-destination`, {
+                new ApiObject(this.chart, `${sourceName}-destination`, {
                     apiVersion: "volsync.backube/v1alpha1",
                     kind: "ReplicationDestination",
                     metadata: {
-                        name: repository,
+                        name: sourceName,
                         ...this.waveAnnotation(-24),
                     },
                     spec: {
                         trigger: { manual: "restore-once" },
                         restic: {
-                            repository,
+                            repository: secretName,
                             destinationPVC: restorePvc,
                             copyMethod: "Snapshot",
                             volumeSnapshotClassName: options.volumeSnapshotClassName,
@@ -960,18 +955,18 @@ export class KirDevApp {
                     },
                 });
             } else {
-                new ApiObject(this.chart, `${repository}-source`, {
+                new ApiObject(this.chart, `${sourceName}-source`, {
                     apiVersion: "volsync.backube/v1alpha1",
                     kind: "ReplicationSource",
                     metadata: {
-                        name: repository,
+                        name: sourceName,
                         ...this.waveAnnotation(-25),
                     },
                     spec: {
                         sourcePVC: pvc,
                         trigger: { schedule: options.schedule ?? "45 3 * * *" },
                         restic: {
-                            repository,
+                            repository: secretName,
                             copyMethod: "Snapshot",
                             volumeSnapshotClassName: options.volumeSnapshotClassName,
                             // Pin the restic cache PVC's class: otherwise it

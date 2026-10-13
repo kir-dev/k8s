@@ -3,22 +3,22 @@
 // https://start.sch.bme.hu
 
 import * as environment from "../.dev/environment.ts";
-import { createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
+import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 const production = environment.environment == "Production";
+
+// `startsch-backups` is a dedicated bucket, not a shared one.
+const b2 = createBackblaze({
+    endpoint: "https://s3.eu-central-003.backblazeb2.com",
+    region: "eu-central-003",
+    bucket: "startsch-backups",
+});
 
 const app = createKirDevApp("startsch", {
     namespace: "startsch",
     createNamespace: true,
     syncWaves: false,
-    backups: {
-        endpoint: "https://s3.eu-central-003.backblazeb2.com",
-        region: "eu-central-003",
-        bucket: "startsch-backups",
-        // `startsch-backups` is a dedicated bucket, not a shared one.
-        postgresPrefix: "",
-    },
 });
 
 const db = app.addPostgres({
@@ -34,7 +34,7 @@ const db = app.addPostgres({
     // In production the cluster was bootstrapped from the Backblaze backup, so
     // it recovers; in development it starts empty.
     restore: production ? "latest" : false,
-    backup: production ? { schedule: "0 24 3 * * *", name: "startsch-backup" } : false,
+    backup: production ? { provider: b2.withPrefix(""), schedule: "0 24 3 * * *", name: "startsch-backup" } : false,
 });
 
 const server = app
