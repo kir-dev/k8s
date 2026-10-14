@@ -323,10 +323,15 @@ export class DockerBuilder {
         return this.options.name ?? this.app.name;
     }
 
-    /** Declare a container port; the workload's Service exposes it. */
-    port(port: number, name?: string): Port {
+    /**
+     * Declare a container port and expose it through the workload's Service.
+     * The Service listens on `servicePort` (default 80 for the first port) and
+     * targets the container port by name, so the public port doesn't move when
+     * the container port does.
+     */
+    port(port: number, name?: string, servicePort?: number): Port {
         const portName = name ?? (this.ports.length === 0 ? "http" : `port-${port}`);
-        const endpoint = new Port(this, portName, port);
+        const endpoint = new Port(this, portName, port, servicePort ?? (this.ports.length === 0 ? 80 : port));
         this.ports.push(endpoint);
         return endpoint;
     }
@@ -337,7 +342,8 @@ export class Port {
     constructor(
         /** @internal */ readonly workload: DockerBuilder,
         readonly name: string,
-        readonly number: number,
+        readonly containerPort: number,
+        readonly servicePort: number,
     ) {}
 
     /** Route `host` to this workload's Service through Traefik. */
@@ -809,7 +815,7 @@ export class KirDevApp {
                     selector: labels,
                     ports: ports.map((port) => ({
                         name: port.name,
-                        port: port.number,
+                        port: port.servicePort,
                         targetPort: kube.IntOrString.fromString(port.name),
                     })),
                 },
@@ -833,7 +839,7 @@ export class KirDevApp {
                                 ports:
                                     ports.length > 0
                                         ? ports.map((port) => ({
-                                              containerPort: port.number,
+                                              containerPort: port.containerPort,
                                               protocol: "TCP",
                                               name: port.name,
                                           }))
