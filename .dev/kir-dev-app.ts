@@ -216,18 +216,13 @@ export interface PostgresOptions {
     size?: string;
     parameters?: Record<string, string>;
     monitoring?: boolean;
-    /** Off-site Barman backups. */
     backup?:
         | false
         | {
               provider: BackupTarget;
               schedule?: string;
               name?: string;
-              /**
-               * Name of the Backblaze credentials Secret. Default
-               * `<name>-db-backup-secrets`; pass the existing name of a running app to
-               * avoid a migration.
-               */
+              /** Name of the Backblaze credentials Secret. Default: `<name>-db-backup-secrets` */
               backblazeCredentialsSecret?: string;
           };
     /** `"latest"` bootstraps from the Barman ObjectStore instead of `initdb`. */
