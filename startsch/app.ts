@@ -61,12 +61,12 @@ const server = app
         //   Push__Subject: mailto:
         env: {
             ConnectionStrings__Postgres: db.dotnetConnectionString(),
-            AuthSch__ClientId: manualSecret(),
-            AuthSch__ClientSecret: manualSecret(),
-            KirMail__ApiKey: manualSecret(),
-            Push__PrivateKey: manualSecret(),
-            Push__PublicKey: manualSecret(),
-            Push__Subject: manualSecret(),
+            AuthSch__ClientId: manualSecret({ optional: !production }),
+            AuthSch__ClientSecret: manualSecret({ optional: !production }),
+            KirMail__ApiKey: manualSecret({ optional: !production }),
+            Push__PrivateKey: manualSecret({ optional: !production }),
+            Push__PublicKey: manualSecret({ optional: !production }),
+            Push__Subject: manualSecret({ optional: !production }),
             "Logging__LogLevel__Microsoft.AspNetCore.Authentication": "Warning",
             "Logging__LogLevel__Microsoft.AspNetCore.Authorization": "Warning",
             "Logging__LogLevel__Microsoft.AspNetCore.Components": "Warning",

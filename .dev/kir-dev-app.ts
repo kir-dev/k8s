@@ -49,11 +49,19 @@ export class SecretKeyRef extends EnvRef {
         readonly secret: string,
         readonly key: string,
         readonly envName: string,
+        readonly optional = false,
     ) {
         super();
     }
     apply(name: string): kube.EnvVar[] {
-        return [{ name, valueFrom: { secretKeyRef: { name: this.secret, key: this.key } } }];
+        return [
+            {
+                name,
+                valueFrom: {
+                    secretKeyRef: { name: this.secret, key: this.key, optional: this.optional || undefined },
+                },
+            },
+        ];
     }
 }
 
@@ -76,19 +84,25 @@ export class Interpolated extends EnvRef {
  * A key of the app's manually-populated `${app.name}-secrets` Secret. The env
  * var name defaults to the map key; pass an explicit key to reuse one value
  * under several names.
+ *
+ * `optional` (off by default) leaves the variable unset instead of failing the
+ * container when the key hasn't been filled in yet — useful in development.
  */
 export class ManualSecret extends EnvRef {
-    constructor(readonly key?: string) {
+    constructor(
+        readonly key?: string,
+        readonly optional = false,
+    ) {
         super();
     }
     apply(name: string, app: KirDevApp): kube.EnvVar[] {
         const key = this.key ?? name;
-        return [{ name, valueFrom: { secretKeyRef: { name: app.appSecrets(), key } } }];
+        return new SecretKeyRef(app.appSecrets(), key, name, this.optional).apply(name);
     }
 }
 
-export function manualSecret(key?: string): ManualSecret {
-    return new ManualSecret(key);
+export function manualSecret(options: { key?: string; optional?: boolean } = {}): ManualSecret {
+    return new ManualSecret(options.key, options.optional);
 }
 
 /**
