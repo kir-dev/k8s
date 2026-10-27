@@ -44,6 +44,10 @@ service:
     lbipam.cilium.io/sharing-key: traefik
     lbipam.cilium.io/ips: "152.66.192.38"
   ipFamilyPolicy: PreferDualStack
+  spec:
+    # advertise only node(s) with Traefik through BGP. workaround for BGP being broken at KSZK. should get fixed at some point.
+    # the issue was that 1/7 of all client IPs got routed to a broken node, dropping all packets.
+    externalTrafficPolicy: Local
 
 resources:
   limits:
