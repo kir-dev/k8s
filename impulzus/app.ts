@@ -39,6 +39,27 @@ const db = app.addPostgres({
         : false,
 });
 
+// The cluster applies a host-level default-deny ingress policy to pods in the
+// shared `vc2` namespace. Without this allow policy the DB is reachable from
+// other pods but not through the LoadBalancer.
+new kube.KubeNetworkPolicy(app.scope, "allow-postgres", {
+    metadata: { name: "allow-postgres", labels: app.labels },
+    spec: {
+        podSelector: { matchLabels: { "cnpg.io/cluster": db.clusterName } },
+        policyTypes: ["Ingress"],
+        ingress: [
+            {
+                ports: [
+                    {
+                        protocol: "TCP",
+                        port: kube.IntOrString.fromNumber(5432),
+                    },
+                ],
+            },
+        ],
+    },
+});
+
 // CloudNativePG only creates ClusterIP Services. Expose the writable primary
 // through a dedicated LoadBalancer Service: the external port stays 8085 (as
 // with the old Helm release) while targeting Postgres on 5432.
