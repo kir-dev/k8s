@@ -1,0 +1,25 @@
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  namespace: sprint-review
+  name: sprint-review
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    acme.cert-manager.io/http01-ingress-class: traefik
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - sprint-review.kir-dev.hu
+      secretName: sprint-review-tls-cert
+  rules:
+    - host: sprint-review.kir-dev.hu
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: sprint-review
+                port:
+                  name: http
