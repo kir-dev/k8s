@@ -118,6 +118,7 @@ ArgoCD checks each top-level directory except the ones starting with a `.`. If i
 - Manage Argo CD Using Argo CD:
   https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd
 - `kustomization.yaml` documentation: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/
+- KSZK vCluster docs: https://git.sch.bme.hu/kszk/sysadmin/k8s/vcluster-docs
 
 ## Production cluster
 
@@ -137,3 +138,16 @@ bun run bootstrap-prod
 ```sh
 vcluster create --upgrade vc2 -n vc2 -f .vclusters/vc2/vcluster.yaml
 ```
+
+### Production cluster notes
+
+KSZK has a Kubernetes cluster with 7 worker nodes. `vc-kirdev` is Kir-Dev's vCluster inside that. `vc2` is a vCluster inside `vc-kirdev`.
+
+A snapshot of `vc-kirdev`'s config is in `./.vclusters/vc-kirdev/vcluster.yaml`. It might be outdated and differ from the live config.
+
+`vc2`'s config is `./.vclusters/vc-kirdev/vcluster.yaml`. It is managed by Kir-Dev and is up to date.
+
+The root KSZK cluster has some defaults that can cause problems:
+- There is a NetworkPolicy that limits resources to only be reachable inside their own vCluster by default.
+  This is needed, otherwise all resources would be reachable from anyone on the dormitory's network.
+  This policy is not visible from inside the vCluster.
