@@ -104,19 +104,4 @@ new traefik.Middleware(app.scope, "ehk-eszb-host-override", {
     spec: { headers: { customRequestHeaders: { Host: "ehk.bme.hu" } } },
 });
 
-// Temporary placeholder domain for the new site, used until the `ehk.bme.hu`
-// DNS record points at the cluster. Production only: it resolves to the
-// production load balancer.
-if (environment.environment == "Production") {
-    http.publish("ehk-de-most-mar-tenyleg.kir-dev.hu", { name: "ehk-temp" });
-    // Test the legacy `/eszb` proxy through the temp domain. A separate Ingress
-    // keeps the host-override middleware off the `/` route above.
-    app.publish("ehk-de-most-mar-tenyleg.kir-dev.hu", {
-        name: "ehk-eszb-test",
-        middlewares: ["ehk-eszb-host-override@kubernetescrd"],
-        tlsSecretName: "ehk-temp-tls-cert",
-        paths: [{ path: "/eszb", service: "ehk-eszb" }],
-    });
-}
-
 export default app.build();
