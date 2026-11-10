@@ -3,32 +3,40 @@
 // https://foodex.sch.bme.hu
 // https://api.foodex.sch.bme.hu
 //
-// Spring Boot backend + Next.js frontend.
+// Spring Boot backend (Postgres via CloudNativePG) + Next.js frontend.
 //
-// The production instance in `vc-kirdev` runs an embedded H2 file database
-// (`jdbc:h2:file:/storage/db`) on a 1 GiB `memory-ssd` PVC, backed up weekly to
-// Google Drive. This app mirrors that layout so the H2 file can be copied over
-// when the domain moves to `vc2`.
+// The old `vc-kirdev` deployment used an embedded H2 file. This app replaces
+// it with a CNPG cluster; see the FoodEx repo's `migrateH2ToPostgres` Gradle
+// task for copying the existing rows over.
 
 import * as kube from "../imports/k8s";
-import * as environment from "../.dev/environment.ts";
-import { createKirDevApp } from "../.dev/kir-dev-app.ts";
-import { DevStorageClass, ProdStorageClass, storageClass } from "../.dev/storageClass.ts";
+import { createBackblaze, createKirDevApp, SecretKeyRef } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
-const production = environment.environment == "Production";
+// Per-app Backblaze B2 bucket for the CNPG/Barman database backups.
+const b2 = createBackblaze({
+    endpoint: "https://s3.eu-central-003.backblazeb2.com",
+    region: "eu-central-003",
+    bucket: "foodex-backups",
+});
 
 const app = createKirDevApp("foodex", {
     namespace: "foodex",
     createNamespace: true,
 });
 
-const backendName = "foodex-backend";
-const backendLabels = { app: backendName, "app.kubernetes.io/name": backendName };
-const frontendLabels = { app: "foodex-frontend", "app.kubernetes.io/name": "foodex-frontend" };
+const db = app.addPostgres({
+    image: "ghcr.io/cloudnative-pg/postgresql:17.5",
+    instances: 1,
+    backup: {
+        provider: b2.withPrefix("postgres/"),
+        schedule: "0 24 3 * * *",
+        backblazeCredentialsSecret: "foodex-db-backup-secrets",
+    },
+});
 
-// The same Secret names as the existing `vc-kirdev` deployment, so the
-// manually filled values and the Drive backup credentials carry over.
+// AuthSCH credentials are filled in by hand. The Secret keeps the name used by
+// the old H2 deployment so the values carry over unchanged.
 new kube.KubeSecret(app.scope, "foodex-backend-secrets", {
     metadata: {
         name: "foodex-backend-secrets",
@@ -40,187 +48,51 @@ new kube.KubeSecret(app.scope, "foodex-backend-secrets", {
     },
 });
 
-new kube.KubeSecret(app.scope, "foodex-backend-filesystem-backup-secrets", {
-    metadata: {
-        name: "foodex-backend-filesystem-backup-secrets",
-        annotations: {
-            "argocd.argoproj.io/sync-wave": "-25",
-            "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
-            "kir-dev.hu/required-keys": "DRIVE_ID,DRIVE_PARENT_ID,GOOGLE_SERVICE_ACCOUNT_KEY",
+const authschId = new SecretKeyRef("foodex-backend-secrets", "FOODEX_AUTHSCH_ID", "FOODEX_AUTHSCH_ID");
+const authschKey = new SecretKeyRef("foodex-backend-secrets", "FOODEX_AUTHSCH_KEY", "FOODEX_AUTHSCH_KEY");
+
+const backend = app.addDocker({
+    name: "foodex-backend",
+    labels: { app: "foodex-backend", "app.kubernetes.io/name": "foodex-backend" },
+    image: versions.backend,
+    imagePullPolicy: "Always",
+    env: {
+        FOODEX_AUTHSCH_ID: authschId,
+        FOODEX_AUTHSCH_KEY: authschKey,
+        FOODEX_BASEURL: "https://api.foodex.sch.bme.hu/",
+        FOODEX_FRONTEND_URL: "https://foodex.sch.bme.hu",
+        FOODEX_DATA_SOURCE: db.jdbcUri,
+        SPRING_DATASOURCE_USERNAME: db.user,
+        SPRING_DATASOURCE_PASSWORD: db.password,
+    },
+    startupProbe: { path: "/api/homepage", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 60 },
+    readinessProbe: { path: "/api/homepage", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
+    livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
+    resources: {
+        limits: {
+            cpu: "750m",
+            memory: "1Gi",
+            "ephemeral-storage": "50Mi",
+        },
+        requests: {
+            cpu: "750m",
+            memory: "1Gi",
+            "ephemeral-storage": "50Mi",
         },
     },
 });
 
-new kube.KubeService(app.scope, `${backendName}-service`, {
-    metadata: { name: backendName, labels: backendLabels },
-    spec: {
-        selector: backendLabels,
-        ports: [{ name: "web", port: 8080, targetPort: kube.IntOrString.fromString("web") }],
-    },
-});
-
-// H2 keeps its data in a single file, so the backend must be a single-replica
-// StatefulSet with a stable PVC.
-new kube.KubeStatefulSet(app.scope, `${backendName}-statefulset`, {
-    metadata: { name: backendName, labels: backendLabels },
-    spec: {
-        serviceName: "",
-        replicas: 1,
-        selector: { matchLabels: backendLabels },
-        template: {
-            metadata: {
-                labels: {
-                    ...backendLabels,
-                    // Used by the backup CronJob's pod affinity and monitoring.
-                    "foodex-backend-backup-assets": "true",
-                    "monitor-spring-boot": "true",
-                },
-            },
-            spec: {
-                automountServiceAccountToken: false,
-                containers: [
-                    {
-                        name: backendName,
-                        image: versions.backend,
-                        imagePullPolicy: "Always",
-                        ports: [{ name: "web", containerPort: 8080, protocol: "TCP" }],
-                        envFrom: [{ secretRef: { name: "foodex-backend-secrets" } }],
-                        env: [
-                            { name: "FOODEX_FRONTEND_URL", value: "https://foodex.sch.bme.hu" },
-                            { name: "FOODEX_BASEURL", value: "https://api.foodex.sch.bme.hu/" },
-                            { name: "FOODEX_DATA_SOURCE", value: "jdbc:h2:file:/storage/db" },
-                        ],
-                        startupProbe: {
-                            httpGet: { path: "/api/homepage", port: kube.IntOrString.fromString("web") },
-                            periodSeconds: 5,
-                            timeoutSeconds: 3,
-                            failureThreshold: 60,
-                        },
-                        readinessProbe: {
-                            httpGet: { path: "/api/homepage", port: kube.IntOrString.fromString("web") },
-                            periodSeconds: 10,
-                            timeoutSeconds: 3,
-                            failureThreshold: 3,
-                        },
-                        livenessProbe: {
-                            tcpSocket: { port: kube.IntOrString.fromString("web") },
-                            periodSeconds: 20,
-                            timeoutSeconds: 3,
-                            failureThreshold: 6,
-                        },
-                        resources: {
-                            limits: {
-                                cpu: kube.Quantity.fromString("750m"),
-                                memory: kube.Quantity.fromString("1Gi"),
-                                "ephemeral-storage": kube.Quantity.fromString("50Mi"),
-                            },
-                            requests: {
-                                cpu: kube.Quantity.fromString("750m"),
-                                memory: kube.Quantity.fromString("1Gi"),
-                                "ephemeral-storage": kube.Quantity.fromString("50Mi"),
-                            },
-                        },
-                        volumeMounts: [{ name: "foodex-backend-pvc", mountPath: "/storage" }],
-                    },
-                ],
-            },
-        },
-        // Keep the existing template name and size: StatefulSet
-        // `volumeClaimTemplates` cannot be changed after creation.
-        volumeClaimTemplates: [
-            {
-                metadata: { name: "foodex-backend-pvc", labels: backendLabels },
-                spec: {
-                    accessModes: ["ReadWriteOnce"],
-                    storageClassName: storageClass(ProdStorageClass.memorySsd, DevStorageClass.localPath),
-                    volumeMode: "Filesystem",
-                    resources: {
-                        requests: { storage: kube.Quantity.fromString("1Gi") },
-                    },
-                },
-            },
-        ],
-    },
-});
-
-// The existing H2 file backup: copy /storage to Google Drive every Saturday.
-new kube.KubeCronJob(app.scope, "foodex-backend-filesystem-backup", {
-    metadata: {
-        name: "foodex-backend-filesystem-backup",
-        labels: { "app.kubernetes.io/name": backendName },
-    },
-    spec: {
-        schedule: "0 4 * * 6",
-        concurrencyPolicy: "Allow",
-        failedJobsHistoryLimit: 1,
-        successfulJobsHistoryLimit: 3,
-        jobTemplate: {
-            spec: {
-                template: {
-                    spec: {
-                        restartPolicy: "Never",
-                        // Run on the node that has the backend's RWO volume.
-                        affinity: {
-                            podAffinity: {
-                                requiredDuringSchedulingIgnoredDuringExecution: [
-                                    {
-                                        labelSelector: {
-                                            matchLabels: { "foodex-backend-backup-assets": "true" },
-                                        },
-                                        topologyKey: "kubernetes.io/hostname",
-                                    },
-                                ],
-                            },
-                        },
-                        containers: [
-                            {
-                                name: "filesystem-backup",
-                                image: "harbor.sch.bme.hu/org-kir-dev/folder-backup:latest",
-                                imagePullPolicy: "IfNotPresent",
-                                env: [{ name: "DRIVE_FILE_NAME", value: backendName }],
-                                envFrom: [{ secretRef: { name: "foodex-backend-filesystem-backup-secrets" } }],
-                                volumeMounts: [{ name: "assets", mountPath: "/mounted-folder" }],
-                                resources: {
-                                    limits: {
-                                        cpu: kube.Quantity.fromString("100m"),
-                                        memory: kube.Quantity.fromString("128Mi"),
-                                        "ephemeral-storage": kube.Quantity.fromString("50Mi"),
-                                    },
-                                    requests: {
-                                        cpu: kube.Quantity.fromString("10m"),
-                                        memory: kube.Quantity.fromString("64Mi"),
-                                        "ephemeral-storage": kube.Quantity.fromString("0"),
-                                    },
-                                },
-                            },
-                        ],
-                        volumes: [
-                            {
-                                name: "assets",
-                                persistentVolumeClaim: {
-                                    claimName: "foodex-backend-pvc-foodex-backend-0",
-                                },
-                            },
-                        ],
-                    },
-                },
-            },
-        },
-    },
-});
-
-app.publish("api.foodex.sch.bme.hu", {
-    name: backendName,
-    labels: { "app.kubernetes.io/name": backendName },
+backend.port(8080, "web", 8080).publish("api.foodex.sch.bme.hu", {
+    name: "foodex-backend",
+    labels: { "app.kubernetes.io/name": "foodex-backend" },
     tlsSecretName: "foodex-backend-api-cert",
-    paths: [{ path: "/", service: backendName, port: "web" }],
 });
 
 // NEXT_PUBLIC_API_URL is baked in at build time, but keeping the ConfigMap
 // matches the existing deployment.
 const frontend = app.addDocker({
     name: "foodex-frontend",
-    labels: frontendLabels,
+    labels: { app: "foodex-frontend", "app.kubernetes.io/name": "foodex-frontend" },
     image: versions.frontend,
     imagePullPolicy: "Always",
     env: { NEXT_PUBLIC_API_URL: "https://api.foodex.sch.bme.hu" },
