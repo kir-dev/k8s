@@ -27,6 +27,12 @@ const app = createKirDevApp("foodex", {
 const db = app.addPostgres({
     image: "ghcr.io/cloudnative-pg/postgresql:17.5",
     instances: 1,
+    // Explicit instead of relying on the builder's defaults, as required by
+    // the repo README.
+    resources: {
+        limits: { cpu: "500m", memory: "512Mi", "ephemeral-storage": "500Mi" },
+        requests: { cpu: "100m", memory: "128Mi", "ephemeral-storage": "100Mi" },
+    },
     backup: {
         provider: b2.withPrefix("postgres/"),
         schedule: "0 24 3 * * *",
@@ -54,6 +60,10 @@ const backend = app.addDocker({
     startupProbe: { path: "/api/homepage", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 60 },
     readinessProbe: { path: "/api/homepage", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
     livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
+    resources: {
+        limits: { cpu: "1000m", memory: "1Gi", "ephemeral-storage": "500Mi" },
+        requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "0" },
+    },
 });
 
 backend.port(8080).publish("api.foodex.sch.bme.hu", { name: "foodex-backend" });
@@ -66,6 +76,10 @@ const frontend = app.addDocker({
     startupProbe: { path: "/", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 30 },
     readinessProbe: { path: "/", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
     livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
+    resources: {
+        limits: { cpu: "1000m", memory: "1Gi", "ephemeral-storage": "500Mi" },
+        requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "0" },
+    },
 });
 
 frontend.port(3000).publish("foodex.sch.bme.hu", { name: "foodex-frontend" });
