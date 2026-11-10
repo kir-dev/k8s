@@ -39,7 +39,7 @@ const db = app.addPostgres({
 // again in `vc2`.
 const backend = app.addDocker({
     name: "foodex-backend",
-    labels: { app: "foodex-backend", "app.kubernetes.io/name": "foodex-backend" },
+    labels: { ...app.labels, "app.kubernetes.io/component": "backend" },
     image: versions.backend,
     imagePullPolicy: "Always",
     env: {
@@ -54,55 +54,20 @@ const backend = app.addDocker({
     startupProbe: { path: "/api/homepage", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 60 },
     readinessProbe: { path: "/api/homepage", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
     livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
-    resources: {
-        limits: {
-            cpu: "750m",
-            memory: "1Gi",
-            "ephemeral-storage": "50Mi",
-        },
-        requests: {
-            cpu: "750m",
-            memory: "1Gi",
-            "ephemeral-storage": "50Mi",
-        },
-    },
 });
 
-backend.port(8080, "web", 8080).publish("api.foodex.sch.bme.hu", {
-    name: "foodex-backend",
-    labels: { "app.kubernetes.io/name": "foodex-backend" },
-    tlsSecretName: "foodex-backend-api-cert",
-});
+backend.port(8080).publish("api.foodex.sch.bme.hu", { name: "foodex-backend" });
 
-// NEXT_PUBLIC_API_URL is baked in at build time, but keeping the ConfigMap
-// matches the existing deployment.
 const frontend = app.addDocker({
     name: "foodex-frontend",
-    labels: { app: "foodex-frontend", "app.kubernetes.io/name": "foodex-frontend" },
+    labels: { ...app.labels, "app.kubernetes.io/component": "frontend" },
     image: versions.frontend,
     imagePullPolicy: "Always",
-    env: { NEXT_PUBLIC_API_URL: "https://api.foodex.sch.bme.hu" },
     startupProbe: { path: "/", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 30 },
     readinessProbe: { path: "/", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
     livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
-    resources: {
-        limits: {
-            cpu: "1",
-            memory: "500Mi",
-            "ephemeral-storage": "200Mi",
-        },
-        requests: {
-            cpu: "1",
-            memory: "500Mi",
-            "ephemeral-storage": "0",
-        },
-    },
 });
 
-frontend.port(3000, "web", 3000).publish("foodex.sch.bme.hu", {
-    name: "foodex-frontend",
-    labels: { "app.kubernetes.io/name": "foodex" },
-    tlsSecretName: "foodex-frontend-cert",
-});
+frontend.port(3000).publish("foodex.sch.bme.hu", { name: "foodex-frontend" });
 
 export default app.build();
