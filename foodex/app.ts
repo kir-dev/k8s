@@ -9,8 +9,7 @@
 // it with a CNPG cluster; see the FoodEx repo's `migrateH2ToPostgres` Gradle
 // task for copying the existing rows over.
 
-import * as kube from "../imports/k8s";
-import { createBackblaze, createKirDevApp, SecretKeyRef } from "../.dev/kir-dev-app.ts";
+import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 // Per-app Backblaze B2 bucket for the CNPG/Barman database backups.
@@ -35,31 +34,17 @@ const db = app.addPostgres({
     },
 });
 
-// AuthSCH credentials are filled in by hand. This keeps the name used by the
-// old `vc-kirdev` deployment for familiarity, but secrets do NOT replicate
-// between vclusters: the values must be recreated in `vc2`.
-new kube.KubeSecret(app.scope, "foodex-backend-secrets", {
-    metadata: {
-        name: "foodex-backend-secrets",
-        annotations: {
-            "argocd.argoproj.io/sync-wave": "-25",
-            "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
-            "kir-dev.hu/required-keys": "FOODEX_AUTHSCH_ID,FOODEX_AUTHSCH_KEY",
-        },
-    },
-});
-
-const authschId = new SecretKeyRef("foodex-backend-secrets", "FOODEX_AUTHSCH_ID", "FOODEX_AUTHSCH_ID");
-const authschKey = new SecretKeyRef("foodex-backend-secrets", "FOODEX_AUTHSCH_KEY", "FOODEX_AUTHSCH_KEY");
-
+// AuthSCH credentials are filled in by hand in the generated `foodex-secrets`
+// Secret. Secrets do not replicate between vclusters, so they must be created
+// again in `vc2`.
 const backend = app.addDocker({
     name: "foodex-backend",
     labels: { app: "foodex-backend", "app.kubernetes.io/name": "foodex-backend" },
     image: versions.backend,
     imagePullPolicy: "Always",
     env: {
-        FOODEX_AUTHSCH_ID: authschId,
-        FOODEX_AUTHSCH_KEY: authschKey,
+        FOODEX_AUTHSCH_ID: manualSecret(),
+        FOODEX_AUTHSCH_KEY: manualSecret(),
         FOODEX_BASEURL: "https://api.foodex.sch.bme.hu/",
         FOODEX_FRONTEND_URL: "https://foodex.sch.bme.hu",
         FOODEX_DATA_SOURCE: db.jdbcUri,
