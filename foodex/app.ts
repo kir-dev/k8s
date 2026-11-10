@@ -35,8 +35,9 @@ const db = app.addPostgres({
     },
 });
 
-// AuthSCH credentials are filled in by hand. The Secret keeps the name used by
-// the old H2 deployment so the values carry over unchanged.
+// AuthSCH credentials are filled in by hand. This keeps the name used by the
+// old `vc-kirdev` deployment for familiarity, but secrets do NOT replicate
+// between vclusters: the values must be recreated in `vc2`.
 new kube.KubeSecret(app.scope, "foodex-backend-secrets", {
     metadata: {
         name: "foodex-backend-secrets",
