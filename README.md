@@ -1,7 +1,13 @@
-# Kir-Dev Kubernetes configuration
+# Kir-Dev Kubernetes configuration and deployment documetation
 
-This repo contains our Kubernetes configuration,
-deployed following GitOps principles using Argo CD.
+This repo contains our Kubernetes configuration
+deployed following GitOps principles using Argo CD,
+and documentation for deploying our other projects.
+
+
+## Documentation specification
+
+The documentation specification can be found in [`DOCUMENTATION_SPEC.md`](https://github.com/kir-dev/k8s/blob/main/DOCUMENTATION_SPEC.md)
 
 ## Running locally
 
