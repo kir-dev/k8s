@@ -61,7 +61,7 @@
    ```bash
    docker compose exec konzisite-api-web-1 npx prisma migrate deploy
    docker compose ps
-   curl -I [https://api.konzisite.kir-dev.hu](https://api.konzisite.kir-dev.hu)
+   curl -I https://api.konzisite.kir-dev.hu
    ```
 
 
