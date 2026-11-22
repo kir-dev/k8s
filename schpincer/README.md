@@ -124,7 +124,9 @@ NEW="--context <vc2-context>"
 
 4. **Publish the first image.** Make sure the `KIR_DEV_BOT_PAT` Actions secret is available to kir-dev/sch-pincer,
    then run the `Deploy` workflow (*Actions → Deploy → Run workflow*). Its first run publishes `v0.0.1`, which
-   [`versions.ts`](./versions.ts) already points at; the Renovate PR it opens only adds the digest.
+   [`versions.ts`](./versions.ts) already points at. Keep the `@sha256:` digest in `versions.ts`: Renovate's regex
+   manager cannot add one to a reference that has none, so without it every Renovate update fails with
+   `Error updating branch: update failure` (the job still passes).
 
 5. **Cut over** (takes a few minutes; pick a time without an active opening). Copy the uploads, stop the old app so
    nothing writes to the old database, then copy the database. Hibernate has already created an empty schema in the
