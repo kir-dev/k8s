@@ -1,10 +1,11 @@
 // Builder for the standard Kir-Dev app shape.
 //
 // An app is a container workload exposed through Traefik, optionally backed by
-// a CNPG Postgres cluster and/or a Garage S3 cluster. Postgres is backed up
-// off-site with the Barman Cloud plugin (CNPG's `ObjectStore` +
-// `ScheduledBackup`); Garage's volumes are backed up off-site with
-// VolSync/restic. Both share one Backblaze B2 bucket, split by prefix.
+// a CNPG Postgres cluster, a Garage S3 cluster and/or persistent volumes
+// mounted into the workload. Postgres is backed up off-site with the Barman
+// Cloud plugin (CNPG's `ObjectStore` + `ScheduledBackup`); Garage's volumes and
+// workload volumes are backed up off-site with VolSync/restic. All of them share
+// one Backblaze B2 bucket, split by prefix.
 //
 // Infra resources (`.addPostgres()`, `.addGarage()`) are declared before the
 // workload (`.addDocker()`) so the workload's `env` can reference the handles
@@ -255,20 +256,27 @@ export interface S3Options {
     backup?: false | S3BackupOptions;
 }
 
-export interface S3BackupOptions {
+/** Off-site VolSync/restic backups of a PVC (see `backup.md`). */
+export interface ResticBackupOptions {
     provider: BackupTarget;
+    /** 5-field cron. Default `45 3 * * *`. */
     schedule?: string;
     retain?: { daily?: number; weekly?: number; monthly?: number };
     pruneIntervalDays?: number;
     /**
-     * The Garage volume restore state machine (see `backup.md`):
+     * The volume restore state machine (see `backup.md`):
      * - `fresh` (default): only back up;
      * - `restore`: emit `ReplicationDestination`s + restore PVCs and point
      *   `dataSourceRef` at the resulting snapshots;
      * - `restored`: back up again, keep `dataSourceRef`, drop the restore
      *   PVCs/Destinations.
      */
-    lifecycle?: "fresh" | "restore" | "restored";
+    lifecycle?: VolumeLifecycle;
+}
+
+export type VolumeLifecycle = "fresh" | "restore" | "restored";
+
+export interface S3BackupOptions extends ResticBackupOptions {
     dataSize?: string;
     metadataSize?: string;
     /**
@@ -307,6 +315,31 @@ export interface DockerOptions {
     automountServiceAccountToken?: boolean;
     /** Workload/Service labels. Default the app's `app.kubernetes.io/*` labels. */
     labels?: Record<string, string>;
+    /**
+     * Persistent volumes mounted into the container. Each is a ReadWriteOnce
+     * PVC, so a workload with volumes runs a single replica and is updated with
+     * the `Recreate` strategy (a rolling update would wait forever for the old
+     * pod to release the volume).
+     */
+    volumes?: VolumeOptions[];
+}
+
+export interface VolumeOptions {
+    /** Volume name; the PVC is `<workload>-<name>`. */
+    name: string;
+    mountPath: string;
+    size: string;
+    /**
+     * Default `memory-ssd`. Backups snapshot the volume with the `memory`
+     * VolumeSnapshotClass, so only override this with a class it covers.
+     */
+    storageClass?: string;
+    backup?: false | VolumeBackupOptions;
+}
+
+export interface VolumeBackupOptions extends ResticBackupOptions {
+    /** Name of the restic repository Secret. Default `<pvc>-backup-secrets`. */
+    backblazeCredentialsSecret?: string;
 }
 
 /** A container workload being built; returned by `addDocker`. */
@@ -605,7 +638,6 @@ export class KirDevApp {
         };
         const garageBackupLabels = { [`backup.kir-dev.hu/${clusterName}`]: "true" };
         const storageClassName = storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
-        const volumeSnapshotClassName = environment.environment == "Production" ? "memory" : "csi-hostpath-snapclass";
 
         new garage.GarageAdminTokenV1Beta1(this.scope, `${clusterName}-admin`, {
             metadata: {
@@ -728,21 +760,23 @@ export class KirDevApp {
         });
 
         if (backup) {
-            this.emitGarageBackups({
-                provider: backup.provider,
-                clusterName,
-                volumes,
-                storageClassName,
-                volumeSnapshotClassName,
-                lifecycle,
-                schedule: backup.schedule,
-                retain: backup.retain,
-                pruneIntervalDays: backup.pruneIntervalDays,
-                secrets: {
-                    data: backup.dataBackblazeCredentialsSecret ?? `${name}-s3-backup-secrets-data`,
-                    metadata: backup.metadataBackblazeCredentialsSecret ?? `${name}-s3-backup-secrets-metadata`,
-                },
-            });
+            const secrets: Record<(typeof volumes)[number]["name"], string> = {
+                data: backup.dataBackblazeCredentialsSecret ?? `${name}-s3-backup-secrets-data`,
+                metadata: backup.metadataBackblazeCredentialsSecret ?? `${name}-s3-backup-secrets-metadata`,
+            };
+            for (const volume of volumes) {
+                this.emitResticBackup({
+                    ...backup,
+                    // The PVC names the garage-operator's StatefulSet creates:
+                    // `<volumeClaimTemplate>-<statefulset>-<ordinal>`.
+                    pvc: `${volume.name}-${clusterName}-storage-0-0`,
+                    size: volume.size,
+                    resourceName: (suffix) => garageBackupName(volume.name, suffix),
+                    secretName: secrets[volume.name],
+                    storageClassName,
+                    lifecycle,
+                });
+            }
         }
 
         const handle: S3Handle = {
@@ -790,6 +824,12 @@ export class KirDevApp {
         const defaultPortName = ports[0]?.name ?? "http";
         const labels = { ...(options.labels ?? this.labels) };
 
+        const volumes = options.volumes ?? [];
+        if (volumes.length > 0 && (options.replicas ?? 1) > 1) {
+            throw new Error(`${base}: a workload with (ReadWriteOnce) volumes can only have one replica`);
+        }
+        const claims = volumes.map((volume) => ({ volume, claimName: this.emitVolume(base, volume, labels) }));
+
         // String env values go into the ConfigMap; refs become per-key env vars.
         const configData: Record<string, string> = {};
         const envVars: kube.EnvVar[] = [];
@@ -826,6 +866,7 @@ export class KirDevApp {
             metadata: { name: base, labels },
             spec: {
                 replicas: options.replicas ?? 1,
+                strategy: claims.length > 0 ? { type: "Recreate" } : undefined,
                 selector: { matchLabels: labels },
                 template: {
                     metadata: { labels },
@@ -856,8 +897,22 @@ export class KirDevApp {
                                     ? tcpProbe(options.livenessProbe, defaultPortName)
                                     : undefined,
                                 resources: kubeResources(options.resources ?? WORKLOAD_RESOURCES),
+                                volumeMounts:
+                                    claims.length > 0
+                                        ? claims.map(({ volume }) => ({
+                                              name: volume.name,
+                                              mountPath: volume.mountPath,
+                                          }))
+                                        : undefined,
                             },
                         ],
+                        volumes:
+                            claims.length > 0
+                                ? claims.map(({ volume, claimName }) => ({
+                                      name: volume.name,
+                                      persistentVolumeClaim: { claimName },
+                                  }))
+                                : undefined,
                         restartPolicy: "Always",
                     },
                 },
@@ -938,102 +993,155 @@ export class KirDevApp {
         });
     }
 
-    private emitGarageBackups(options: {
-        provider: BackupTarget;
-        clusterName: string;
-        volumes: readonly { name: string; size: string }[];
-        storageClassName: string;
-        volumeSnapshotClassName: string;
-        lifecycle: "fresh" | "restore" | "restored";
-        schedule?: string;
-        retain?: { daily?: number; weekly?: number; monthly?: number };
-        pruneIntervalDays?: number;
-        secrets: Record<string, string>;
-    }): void {
-        for (const volume of options.volumes) {
-            const sourceName = garageBackupName(volume.name, "backup");
-            // The PVC names the garage-operator's StatefulSet creates:
-            // `<volumeClaimTemplate>-<statefulset>-<ordinal>`.
-            const pvc = `${volume.name}-${options.clusterName}-storage-0-0`;
-            const restorePvc = garageBackupName(volume.name, "restore");
-            const restoreSnapshot = garageBackupName(volume.name, "restore-snap");
-            // VolSync needs one repo Secret per PVC (`RESTIC_REPOSITORY` is unique).
-            const secretName = options.secrets[volume.name];
+    /**
+     * VolSync/restic backup (or, while `lifecycle` is `restore`, restore) of
+     * one PVC. In `restore`, the latest backup is restored into a scratch PVC
+     * and snapshotted as `resourceName("restore-snap")`; the PVC being restored
+     * must point its `dataSourceRef` at that snapshot (see `backup.md` §5).
+     */
+    private emitResticBackup(
+        options: ResticBackupOptions & {
+            /** The PVC being backed up. Also the restic repository's path. */
+            pvc: string;
+            size: string;
+            /** Names the backup/restore resources: `backup`, `restore`, `restore-snap`. */
+            resourceName: (suffix: string) => string;
+            secretName: string;
+            storageClassName: string;
+        },
+    ): void {
+        const sourceName = options.resourceName("backup");
+        const restorePvc = options.resourceName("restore");
+        const restoreSnapshot = options.resourceName("restore-snap");
+        // VolSync needs one repo Secret per PVC (`RESTIC_REPOSITORY` is unique).
+        const secretName = options.secretName;
+        const volumeSnapshotClassName = snapshotClass();
 
-            new kube.KubeSecret(this.scope, secretName, {
+        new kube.KubeSecret(this.scope, secretName, {
+            metadata: {
+                name: secretName,
+                annotations: {
+                    ...this.wave(-26),
+                    "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+                    "kir-dev.hu/required-keys": "RESTIC_PASSWORD,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY",
+                },
+            },
+            stringData: {
+                RESTIC_REPOSITORY: `s3:${options.provider.endpoint}/${options.provider.bucket}/${options.provider.prefix}${options.pvc}`,
+                AWS_DEFAULT_REGION: options.provider.region,
+            },
+        });
+
+        if (options.lifecycle === "restore") {
+            new kube.KubePersistentVolumeClaim(this.scope, `${sourceName}-restore-pvc`, {
                 metadata: {
-                    name: secretName,
+                    name: restorePvc,
                     annotations: {
-                        ...this.wave(-26),
-                        "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
-                        "kir-dev.hu/required-keys": "RESTIC_PASSWORD,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY",
+                        ...this.wave(-25),
+                        "volsync.backube/snapname": restoreSnapshot,
                     },
                 },
-                stringData: {
-                    RESTIC_REPOSITORY: `s3:${options.provider.endpoint}/${options.provider.bucket}/${options.provider.prefix}${pvc}`,
-                    AWS_DEFAULT_REGION: options.provider.region,
+                spec: {
+                    accessModes: ["ReadWriteOnce"],
+                    storageClassName: options.storageClassName,
+                    resources: { requests: { storage: kube.Quantity.fromString(options.size) } },
                 },
             });
 
-            if (options.lifecycle === "restore") {
-                new kube.KubePersistentVolumeClaim(this.scope, `${sourceName}-restore-pvc`, {
-                    metadata: {
-                        name: restorePvc,
-                        annotations: {
-                            ...this.wave(-25),
-                            "volsync.backube/snapname": restoreSnapshot,
+            new volsync.ReplicationDestination(this.scope, `${sourceName}-destination`, {
+                metadata: {
+                    name: sourceName,
+                    ...this.waveAnnotation(-24),
+                },
+                spec: {
+                    trigger: { manual: "restore-once" },
+                    restic: {
+                        repository: secretName,
+                        destinationPvc: restorePvc,
+                        copyMethod: volsync.ReplicationDestinationSpecResticCopyMethod.SNAPSHOT,
+                        volumeSnapshotClassName,
+                        cacheStorageClassName: options.storageClassName,
+                    },
+                },
+            });
+        } else {
+            new volsync.ReplicationSource(this.scope, `${sourceName}-source`, {
+                metadata: {
+                    name: sourceName,
+                    ...this.waveAnnotation(-25),
+                },
+                spec: {
+                    sourcePvc: options.pvc,
+                    trigger: { schedule: options.schedule ?? "45 3 * * *" },
+                    restic: {
+                        repository: secretName,
+                        copyMethod: volsync.ReplicationSourceSpecResticCopyMethod.SNAPSHOT,
+                        volumeSnapshotClassName,
+                        // Pin the restic cache PVC's class: otherwise it
+                        // falls back to the cluster default.
+                        cacheStorageClassName: options.storageClassName,
+                        retain: {
+                            daily: options.retain?.daily ?? 7,
+                            weekly: options.retain?.weekly ?? 4,
+                            monthly: options.retain?.monthly ?? 6,
                         },
+                        pruneIntervalDays: options.pruneIntervalDays ?? 7,
                     },
-                    spec: {
-                        accessModes: ["ReadWriteOnce"],
-                        storageClassName: options.storageClassName,
-                        resources: { requests: { storage: kube.Quantity.fromString(volume.size) } },
-                    },
-                });
-
-                new volsync.ReplicationDestination(this.scope, `${sourceName}-destination`, {
-                    metadata: {
-                        name: sourceName,
-                        ...this.waveAnnotation(-24),
-                    },
-                    spec: {
-                        trigger: { manual: "restore-once" },
-                        restic: {
-                            repository: secretName,
-                            destinationPvc: restorePvc,
-                            copyMethod: volsync.ReplicationDestinationSpecResticCopyMethod.SNAPSHOT,
-                            volumeSnapshotClassName: options.volumeSnapshotClassName,
-                            cacheStorageClassName: options.storageClassName,
-                        },
-                    },
-                });
-            } else {
-                new volsync.ReplicationSource(this.scope, `${sourceName}-source`, {
-                    metadata: {
-                        name: sourceName,
-                        ...this.waveAnnotation(-25),
-                    },
-                    spec: {
-                        sourcePvc: pvc,
-                        trigger: { schedule: options.schedule ?? "45 3 * * *" },
-                        restic: {
-                            repository: secretName,
-                            copyMethod: volsync.ReplicationSourceSpecResticCopyMethod.SNAPSHOT,
-                            volumeSnapshotClassName: options.volumeSnapshotClassName,
-                            // Pin the restic cache PVC's class: otherwise it
-                            // falls back to the cluster default.
-                            cacheStorageClassName: options.storageClassName,
-                            retain: {
-                                daily: options.retain?.daily ?? 7,
-                                weekly: options.retain?.weekly ?? 4,
-                                monthly: options.retain?.monthly ?? 6,
-                            },
-                            pruneIntervalDays: options.pruneIntervalDays ?? 7,
-                        },
-                    },
-                });
-            }
+                },
+            });
         }
+    }
+
+    /** A workload volume's PVC, plus its backup when enabled. */
+    private emitVolume(base: string, volume: VolumeOptions, labels: Record<string, string>): string {
+        const pvc = `${base}-${volume.name}`;
+        const storageClassName =
+            volume.storageClass ?? storageClass(ProdStorageClass.memorySsd, DevStorageClass.snapshottableHostPath);
+        const backup = typeof volume.backup === "object" ? volume.backup : undefined;
+        const lifecycle = backup?.lifecycle ?? "fresh";
+        const resourceName = (suffix: string) => `${pvc}-${suffix}`;
+
+        // No sync wave: with a `WaitForFirstConsumer` storage class the PVC
+        // stays `Pending` (Progressing) until the Deployment's pod exists, so
+        // an earlier wave would never finish.
+        new kube.KubePersistentVolumeClaim(this.scope, `${pvc}-pvc`, {
+            metadata: {
+                name: pvc,
+                labels,
+                annotations: {
+                    // Never let ArgoCD delete the data, even if the volume is
+                    // removed from Git or the Application is deleted.
+                    "argocd.argoproj.io/sync-options": "Delete=false",
+                },
+            },
+            spec: {
+                accessModes: ["ReadWriteOnce"],
+                storageClassName,
+                resources: { requests: { storage: kube.Quantity.fromString(volume.size) } },
+                // Immutable: once restored, keep it (inert after the PVC is Bound).
+                dataSourceRef:
+                    lifecycle === "fresh"
+                        ? undefined
+                        : {
+                              apiGroup: "snapshot.storage.k8s.io",
+                              kind: "VolumeSnapshot",
+                              name: resourceName("restore-snap"),
+                          },
+            },
+        });
+
+        if (backup) {
+            this.emitResticBackup({
+                ...backup,
+                pvc,
+                size: volume.size,
+                resourceName,
+                secretName: backup.backblazeCredentialsSecret ?? `${pvc}-backup-secrets`,
+                storageClassName,
+                lifecycle,
+            });
+        }
+        return pvc;
     }
 }
 
@@ -1047,6 +1155,11 @@ export function createKirDevApp(name: string, options: KirDevAppOptions = {}): K
 // independent of the cluster name for compatibility with existing apps.
 function garageBackupName(volume: string, suffix: string): string {
     return `garage-${volume}-${suffix}`;
+}
+
+// The VolumeSnapshotClass for `memory-ssd` volumes (see `backup.md` §9).
+function snapshotClass(): string {
+    return environment.environment == "Production" ? "memory" : "csi-hostpath-snapclass";
 }
 
 function httpProbe(options: ProbeOptions, defaultPort: string): kube.Probe {
