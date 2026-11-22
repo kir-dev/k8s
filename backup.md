@@ -31,6 +31,10 @@ garage-operator `0.7.12`.
   - the `GarageCluster.storage.{data,metadata}.dataSourceRef` pointing at a fixed-name
     `VolumeSnapshot` in recovery mode.
 - **Velero was removed** — see §3.
+- **Workload volumes** (`addDocker({ volumes: [...] })` in `.dev/kir-dev-app.ts`,
+  first used by `schpincer/`) reuse the same per-PVC backup/restore resources and
+  `lifecycle` switch. The app owns the PVC itself (no operator), so in recovery
+  mode the PVC's own `dataSourceRef` points at `<pvc>-restore-snap`.
 
 ## 2. How backups work
 
