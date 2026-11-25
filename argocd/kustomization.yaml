@@ -79,8 +79,8 @@ helmCharts:
         initImage:
           resources:
             limits:
-              cpu: 110m
-              memory: 128Mi
+              cpu: 200m
+              memory: 256Mi
               ephemeral-storage: 600M
             requests:
               cpu: 110m
@@ -136,15 +136,18 @@ helmCharts:
             memory: 64Mi
             ephemeral-storage: 50Mi
       repoServer:
+        # `copyutil` copies the ~204MB `argocd` binary with `cp --update=none`.
+        # With 64Mi memory limit it OOMKills mid-copy, and the retry skips the
+        # truncated file, making `cmp-cdk8s` segfault (exit 139) on startup.
         copyutil:
           resources:
             limits:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 200m
+              memory: 256Mi
               ephemeral-storage: 600M
             requests:
               cpu: 50m
-              memory: 32Mi
+              memory: 64Mi
               ephemeral-storage: 50Mi
 
         # Sidecar running the `cdk8s` CMP
