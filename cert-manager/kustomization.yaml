@@ -1,8 +1,9 @@
 # https://cert-manager.io/docs/installation/helm/
 # https://artifacthub.io/packages/helm/cert-manager/cert-manager
 
-namespace: cert-manager
-
+# Do not set top-level `namespace: cert-manager` here: Kustomize would inject it
+# onto the cluster-scoped `ClusterIssuer` CRD. The Helm chart already receives
+# `namespace: cert-manager` below.
 resources:
   - namespace.yaml
   - cluster-issuer.yaml

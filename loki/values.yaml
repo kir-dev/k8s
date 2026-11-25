@@ -8,11 +8,13 @@ loki:
   auth_enabled: false
   commonConfig:
     replication_factor: 1
+  storage:
+    type: filesystem
   schemaConfig:
     configs:
       - from: "2024-04-01"
         store: tsdb
-        object_store: s3
+        object_store: filesystem
         schema: v13
         index:
           prefix: loki_index_
@@ -44,7 +46,8 @@ singleBinary:
 
 chunksCache:
   writebackSizeLimit: 10MB
-  allocatedMemory: 600
+  # Must stay well below container limits.memory (256Mi) to avoid OOMKills.
+  allocatedMemory: 160
   resources:
     requests:
       cpu: 100m
@@ -55,7 +58,8 @@ chunksCache:
       memory: 256Mi
       ephemeral-storage: 200Mi
 resultsCache:
-  allocatedMemory: 300
+  # Must stay well below container limits.memory (256Mi) to avoid OOMKills.
+  allocatedMemory: 128
   writebackSizeLimit: 30MB
   resources:
     requests:
@@ -79,19 +83,10 @@ lokiCanary:
       cpu: 200m
       memory: 256Mi
       ephemeral-storage: 200Mi
+# MinIO's public container images (quay.io/minio/minio, docker.io/minio/minio) are
+# no longer publicly pullable; SingleBinary stores data directly on its PVC instead.
 minio:
-  enabled: true
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-      ephemeral-storage: 50Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-      ephemeral-storage: 200Mi
-  persistence:
-    storageClass: memory-hdd
+  enabled: false
 gateway:
   affinity: { } # allow scheduling 2 gateways on the same node, needed when updating
   resources:

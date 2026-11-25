@@ -49,7 +49,12 @@ export default singletonApp({ namespace: "argocd" }, (scope) => {
                             prune: true,
                             selfHeal: true,
                         },
-                        syncOptions: ["ServerSideApply=true", "CreateNamespace=true", "ApplyOutOfSyncOnly=true"],
+                        syncOptions: [
+                            "ServerSideApply=true",
+                            "CreateNamespace=true",
+                            "ApplyOutOfSyncOnly=true",
+                            "SkipDryRunOnMissingResource=true",
+                        ],
                     },
                 },
             },

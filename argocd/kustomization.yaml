@@ -51,16 +51,13 @@ helmCharts:
                     cd ..
                     bun install --frozen-lockfile
                     bun run cdk8s:import
-                    bun run cdk8s:synth $ARGOCD_APP_NAME
               generate:
                 command: [ bash, -c ]
                 args:
                   - |
-                    # put a --- between files
-                    for f in ../dist/$ARGOCD_APP_NAME/*.k8s.yaml; do
-                      printf -- '---\n'
-                      cat "$f"
-                    done
+                    set -e
+                    cd ..
+                    bun .dev/cdk8s-synth.ts --stdout "$ARGOCD_APP_NAME"
 
       global:
         networkPolicy:
@@ -72,11 +69,11 @@ helmCharts:
         resources:
           limits:
             cpu: 500m
-            memory: 900Mi
+            memory: 1536Mi
             ephemeral-storage: 200M
           requests:
             cpu: 250m
-            memory: 287Mi
+            memory: 384Mi
             ephemeral-storage: 0
       dex:
         initImage:
@@ -154,7 +151,7 @@ helmCharts:
         extraContainers:
           - name: cmp-cdk8s
             command: [ "/var/run/argocd/argocd-cmp-server" ]
-            image: nixery.dev/shell/bun/kubernetes-helm/nodejs
+            image: oven/bun:1.3.13-slim
             imagePullPolicy: IfNotPresent
             env:
               # bun needs a writable HOME for its install cache; /tmp is the cmp-tmp emptyDir.

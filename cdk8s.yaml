@@ -1,19 +1,10 @@
 language: typescript
 
 # https://cdk8s.io/docs/latest/cli/import/#import-types
+# Helm charts are deployed via Kustomize (`*/kustomization.yaml`), so only core
+# Kubernetes schemas and CRDs used by cdk8s TypeScript apps are imported here.
 imports:
   - k8s@1.36.0 # version from https://github.com/cdk8s-team/cdk8s/tree/master/kubernetes-schemas
-
-  - helm:oci://ghcr.io/argoproj/argo-helm/argo-cd@9.3.4
-  - helm:oci://quay.io/jetstack/charts/cert-manager@v1.19.2
-  - helm:https://cloudnative-pg.github.io/charts/cloudnative-pg@0.27.0
-  - helm:https://cloudnative-pg.io/charts/plugin-barman-cloud@0.4.0
-  - helm:https://prometheus-community.github.io/helm-charts/kube-prometheus-stack@81.2.0
-  - helm:https://grafana.github.io/helm-charts/loki@6.49.0
-  - helm:https://grafana.github.io/helm-charts/tempo@1.24.3
-  - helm:https://traefik.github.io/charts/traefik@39.0.0
-  - helm:https://open-telemetry.github.io/opentelemetry-helm-charts/opentelemetry-collector@0.143.0
-  - helm:oci://ghcr.io/rajsinghtech/charts/garage-operator@0.7.12
 
   # cdk8s-cli normally only allows one CRD file per API group, so multiple
   # files in a group overwrite each other. `.dev/cdk8s-import.ts` patches the

@@ -49,9 +49,11 @@ resources:
   limits:
     cpu: 1
     memory: 1Gi
+    ephemeral-storage: 200Mi
   requests:
     cpu: .05
     memory: 100Mi
+    ephemeral-storage: 0
 
 metrics:
   prometheus:
