@@ -1,11 +1,9 @@
 import * as environment from "./environment.ts";
 
 export function storageClass(prod: ProdStorageClass, dev: DevStorageClass = DevStorageClass.localPath): string {
-    if (environment.environment == "Production")
-        return prod;
-    if (environment.environment == "Development")
-        return dev;
-    throw new Error();
+    if (environment.isProduction) return prod;
+    if (environment.isDevelopment) return dev;
+    throw new Error(`Unsupported environment: ${environment.environment}`);
 }
 
 // Storage classes available in the vc-kirdev vCluster at KSZK

@@ -6,24 +6,16 @@
 
 import * as kube from "../imports/k8s";
 import * as traefik from "../imports/traefik.io.ts";
-import * as environment from "../.dev/environment.ts";
+import { isDevelopment, isProduction } from "../.dev/environment.ts";
 import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 // Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups
 // (`postgres/` prefix) and the VolSync/restic garage-volume backups
 // (`restic/` prefix).
-const backupBucket = environment.environment == "Production" ? "kir-dev-ehk-backups" : "ehk-test";
-const b2 = createBackblaze({
-    endpoint: "https://s3.eu-central-003.backblazeb2.com",
-    region: "eu-central-003",
-    bucket: backupBucket,
-});
+const b2 = createBackblaze(isProduction ? "kir-dev-ehk-backups" : "ehk-test");
 
-const app = createKirDevApp("ehk", {
-    namespace: "ehk",
-    createNamespace: true,
-});
+const app = createKirDevApp("ehk");
 
 const db = app.addPostgres({
     image: "ghcr.io/cloudnative-pg/postgresql:17.5",
@@ -57,7 +49,7 @@ const server = app.addDocker({
         DATABASE_URI: db.uri,
         // Set manually in production:
         //   PAYLOAD_SECRET:
-        PAYLOAD_SECRET: environment.environment == "Development" ? "local-development-secret" : manualSecret(),
+        PAYLOAD_SECRET: isDevelopment ? "local-development-secret" : manualSecret(),
     },
     // Hit a Payload route so Payload's initialization (including
     // `prodMigrations`) completes before the pod reports Ready.

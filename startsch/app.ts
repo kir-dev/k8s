@@ -2,22 +2,14 @@
 //
 // https://start.sch.bme.hu
 
-import * as environment from "../.dev/environment.ts";
+import { isProduction } from "../.dev/environment.ts";
 import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
-const production = environment.environment == "Production";
-
 // `startsch-backups` is a dedicated bucket, not a shared one.
-const b2 = createBackblaze({
-    endpoint: "https://s3.eu-central-003.backblazeb2.com",
-    region: "eu-central-003",
-    bucket: "startsch-backups",
-});
+const b2 = createBackblaze("startsch-backups");
 
 const app = createKirDevApp("startsch", {
-    namespace: "startsch",
-    createNamespace: true,
     syncWaves: false,
 });
 
@@ -33,8 +25,8 @@ const db = app.addPostgres({
     },
     // In production the cluster was bootstrapped from the Backblaze backup, so
     // it recovers; in development it starts empty.
-    restore: production ? "latest" : false,
-    backup: production
+    restore: isProduction ? "latest" : false,
+    backup: isProduction
         ? {
               provider: b2.withPrefix(""),
               schedule: "0 24 3 * * *",
@@ -44,51 +36,50 @@ const db = app.addPostgres({
         : false,
 });
 
-const server = app
-    .addDocker({
-        image: versions.image,
-        imagePullPolicy: "Always",
-        labels: {
-            "app.kubernetes.io/name": "startsch",
-            "app.kubernetes.io/component": "server",
-        },
-        // Set manually:
-        //   AuthSch__ClientId:
-        //   AuthSch__ClientSecret:
-        //   KirMail__ApiKey:
-        //   Push__PrivateKey:
-        //   Push__PublicKey:
-        //   Push__Subject: mailto:
-        env: {
-            ConnectionStrings__Postgres: db.dotnetConnectionString(),
-            AuthSch__ClientId: manualSecret({ optional: !production }),
-            AuthSch__ClientSecret: manualSecret({ optional: !production }),
-            KirMail__ApiKey: manualSecret({ optional: !production }),
-            Push__PrivateKey: manualSecret({ optional: !production }),
-            Push__PublicKey: manualSecret({ optional: !production }),
-            Push__Subject: manualSecret({ optional: !production }),
-            "Logging__LogLevel__Microsoft.AspNetCore.Authentication": "Warning",
-            "Logging__LogLevel__Microsoft.AspNetCore.Authorization": "Warning",
-            "Logging__LogLevel__Microsoft.AspNetCore.Components": "Warning",
-            "Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics": "Warning",
-            "Logging__LogLevel__Microsoft.AspNetCore.Hosting": "Information",
-            "Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides": "Warning",
-            "Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware": "Information",
-            "Logging__LogLevel__Microsoft.AspNetCore.Server": "Information",
-            "Logging__LogLevel__Microsoft.AspNetCore": "Warning",
-            "Logging__LogLevel__Microsoft.EntityFrameworkCore.Migrations": "Information",
-            "Logging__LogLevel__Microsoft.EntityFrameworkCore": "Information",
-            "Logging__LogLevel__Microsoft.Hosting": "Information",
-            Logging__LogLevel__StartSch: "Trace",
-            OTEL_EXPORTER_OTLP_ENDPOINT: "http://opentelemetry-collector.monitoring.svc.cluster.local:4317",
-            StartSch__PublicUrl: "https://start.sch.bme.hu",
-            StartSch__EnabledModules__All: production ? "true" : "false",
-        },
-        resources: {
-            limits: { cpu: "500m", memory: "500Mi", "ephemeral-storage": "200Mi" },
-            requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "0" },
-        },
-    })
+app.addDocker({
+    image: versions.image,
+    imagePullPolicy: "Always",
+    labels: {
+        "app.kubernetes.io/name": "startsch",
+        "app.kubernetes.io/component": "server",
+    },
+    // Set manually:
+    //   AuthSch__ClientId:
+    //   AuthSch__ClientSecret:
+    //   KirMail__ApiKey:
+    //   Push__PrivateKey:
+    //   Push__PublicKey:
+    //   Push__Subject: mailto:
+    env: {
+        ConnectionStrings__Postgres: db.dotnetConnectionString(),
+        AuthSch__ClientId: manualSecret({ optional: !isProduction }),
+        AuthSch__ClientSecret: manualSecret({ optional: !isProduction }),
+        KirMail__ApiKey: manualSecret({ optional: !isProduction }),
+        Push__PrivateKey: manualSecret({ optional: !isProduction }),
+        Push__PublicKey: manualSecret({ optional: !isProduction }),
+        Push__Subject: manualSecret({ optional: !isProduction }),
+        "Logging__LogLevel__Microsoft.AspNetCore.Authentication": "Warning",
+        "Logging__LogLevel__Microsoft.AspNetCore.Authorization": "Warning",
+        "Logging__LogLevel__Microsoft.AspNetCore.Components": "Warning",
+        "Logging__LogLevel__Microsoft.AspNetCore.Hosting.Diagnostics": "Warning",
+        "Logging__LogLevel__Microsoft.AspNetCore.Hosting": "Information",
+        "Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides": "Warning",
+        "Logging__LogLevel__Microsoft.AspNetCore.Routing.EndpointMiddleware": "Information",
+        "Logging__LogLevel__Microsoft.AspNetCore.Server": "Information",
+        "Logging__LogLevel__Microsoft.AspNetCore": "Warning",
+        "Logging__LogLevel__Microsoft.EntityFrameworkCore.Migrations": "Information",
+        "Logging__LogLevel__Microsoft.EntityFrameworkCore": "Information",
+        "Logging__LogLevel__Microsoft.Hosting": "Information",
+        Logging__LogLevel__StartSch: "Trace",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://opentelemetry-collector.monitoring.svc.cluster.local:4317",
+        StartSch__PublicUrl: "https://start.sch.bme.hu",
+        StartSch__EnabledModules__All: isProduction ? "true" : "false",
+    },
+    resources: {
+        limits: { cpu: "500m", memory: "500Mi", "ephemeral-storage": "200Mi" },
+        requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "0" },
+    },
+})
     .port(8080)
     .publish("start.sch.bme.hu", { labels: {} });
 

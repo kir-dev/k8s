@@ -98,7 +98,7 @@ export class ManualSecret extends EnvRef {
     }
     apply(name: string, app: KirDevApp): kube.EnvVar[] {
         const key = this.key ?? name;
-        return new SecretKeyRef(app.appSecrets(), key, name, this.optional).apply(name);
+        return new SecretKeyRef(app.registerAppSecretKey(key), key, name, this.optional).apply(name);
     }
 }
 
@@ -153,6 +153,19 @@ const WORKLOAD_RESOURCES: Required<ResourceSpec> = {
 
 // --- handles --------------------------------------------------------------
 
+export interface PostgresPublishOptions {
+    /** External TCP port on the LoadBalancer Service. */
+    port: number;
+    /** Cilium LB IPAM IP address (`lbipam.cilium.io/ips`). */
+    ip?: string;
+    /** Cilium LB IPAM sharing key (`lbipam.cilium.io/sharing-key`). */
+    sharingKey?: string;
+    /** LoadBalancer Service name. Default `${app.name}-db`. */
+    serviceName?: string;
+    /** NetworkPolicy name. Default `allow-postgres`. */
+    networkPolicyName?: string;
+}
+
 export interface PostgresHandle {
     readonly clusterName: string;
     /** The `<cluster>-app` Secret CNPG generates. */
@@ -170,6 +183,12 @@ export interface PostgresHandle {
      * `Host=$(DBHOST); Database=$(DBNAME); Username=$(DBUSER); Password=$(DBPASSWORD);`.
      */
     dotnetConnectionString(): Interpolated;
+    /**
+     * Expose the writable primary outside the cluster via a LoadBalancer Service
+     * and an ingress NetworkPolicy allowing TCP 5432 (needed because the host
+     * cluster applies a default-deny ingress policy).
+     */
+    publish(options: PostgresPublishOptions): this;
 }
 
 export interface S3Handle {
@@ -188,20 +207,30 @@ export interface S3Handle {
 
 // --- options --------------------------------------------------------------
 
+export const DEFAULT_BACKBLAZE_ENDPOINT = "https://s3.eu-central-003.backblazeb2.com";
+export const DEFAULT_BACKBLAZE_REGION = "eu-central-003";
+
 export interface BackblazeOptions {
-    /** S3-compatible endpoint, e.g. Backblaze B2. */
+    /** S3-compatible endpoint, e.g. Backblaze B2. Default `eu-central-003`. */
+    endpoint?: string;
+    /** S3 region. Default `eu-central-003`. */
+    region?: string;
+    bucket: string;
+}
+
+export interface ResolvedBackblazeOptions {
     endpoint: string;
     region: string;
     bucket: string;
 }
 
 /** A Backblaze bucket plus the prefix a component's backups live under. */
-export interface BackupTarget extends BackblazeOptions {
+export interface BackupTarget extends ResolvedBackblazeOptions {
     prefix: string;
 }
 
 export class Backblaze {
-    constructor(private readonly options: BackblazeOptions) {}
+    constructor(private readonly options: ResolvedBackblazeOptions) {}
 
     /** Bind the provider to a prefix within the bucket (e.g. `"postgres/"`, `"restic/"`). */
     withPrefix(prefix: string): BackupTarget {
@@ -209,8 +238,13 @@ export class Backblaze {
     }
 }
 
-export function createBackblaze(options: BackblazeOptions): Backblaze {
-    return new Backblaze(options);
+export function createBackblaze(bucketOrOptions: string | BackblazeOptions): Backblaze {
+    const options = typeof bucketOrOptions === "string" ? { bucket: bucketOrOptions } : bucketOrOptions;
+    return new Backblaze({
+        endpoint: options.endpoint ?? DEFAULT_BACKBLAZE_ENDPOINT,
+        region: options.region ?? DEFAULT_BACKBLAZE_REGION,
+        bucket: options.bucket,
+    });
 }
 
 export interface KirDevAppOptions {
@@ -244,6 +278,12 @@ export interface PostgresOptions {
     restore?: false | "latest";
     /** Name of the `externalClusters` entry used for recovery. Default `barman-backup`. */
     externalClusterName?: string;
+    /**
+     * Pod anti-affinity between CNPG replicas when `instances > 1`.
+     * Defaults to `"required"` in Production (never place two replicas on the
+     * same node) and `"preferred"` in Development (single-node k3d).
+     */
+    podAntiAffinityType?: "preferred" | "required";
     resources?: ResourceSpec;
 }
 
@@ -252,6 +292,10 @@ export interface S3Options {
     clusterName?: string;
     /** Secret the app reads its key pair from. Default `<name>-garage-s3`. */
     credentialsSecret?: string;
+    /** Size of the Garage data PVC. Default `5Gi`. */
+    dataSize?: string;
+    /** Size of the Garage metadata PVC. Default `1Gi`. */
+    metadataSize?: string;
     /** Off-site VolSync/restic backups of the Garage volumes. */
     backup?: false | S3BackupOptions;
 }
@@ -409,10 +453,13 @@ export class KirDevApp {
 
     private readonly syncWaves: boolean;
     private readonly declaredSecrets = new Set<string>();
+    private readonly appSecretKeys = new Set<string>();
+    private appSecretsRequested = false;
     private readonly dockerBuilders: DockerBuilder[] = [];
     /** Ingresses registered during app definition; materialized in `.build()`. */
     private readonly routes: { service: string; port: string; host: string; options: ExposeOptions }[] = [];
     private postgresAdded = false;
+    private postgresPublished = false;
     private garageAdded = false;
     /** The standard `app.kubernetes.io/*` labels, merged with `options.labels`. */
     readonly labels: Record<string, string>;
@@ -454,20 +501,36 @@ export class KirDevApp {
      * calls with the same name are no-ops, so `manualSecret()` and the
      * `secrets` option can both target it.
      */
-    declareSecret(name: string, stringData?: Record<string, string>): void {
+    declareSecret(name: string, stringData?: Record<string, string>, requiredKeys?: string[]): void {
         if (this.declaredSecrets.has(name)) return;
         this.declaredSecrets.add(name);
+        const annotations: Record<string, string> = {
+            ...this.wave(-25),
+            "argocd.argoproj.io/compare-options": "IgnoreExtraneous",
+            ...(requiredKeys && requiredKeys.length > 0
+                ? { "kir-dev.hu/required-keys": [...requiredKeys].sort().join(",") }
+                : {}),
+        };
         new kube.KubeSecret(this.scope, name, {
-            metadata: { name, ...this.waveAnnotation(-25) },
+            metadata: {
+                name,
+                ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
+            },
             stringData,
         });
     }
 
-    /** Register a key of a manual secret; creates `${name}-secrets` on first use. */
+    /** Register a key of `${name}-secrets`; materialized in `.build()` with all collected keys. */
+    registerAppSecretKey(key: string): string {
+        this.appSecretKeys.add(key);
+        this.appSecretsRequested = true;
+        return `${this.name}-secrets`;
+    }
+
+    /** Ensure `${name}-secrets` is created and return its name. */
     appSecrets(): string {
-        const name = `${this.name}-secrets`;
-        this.declareSecret(name);
-        return name;
+        this.appSecretsRequested = true;
+        return `${this.name}-secrets`;
     }
 
     // --- postgres ---------------------------------------------------------
@@ -486,16 +549,23 @@ export class KirDevApp {
         const backup = typeof options.backup === "object" ? options.backup : undefined;
         const backupEnabled = backup !== undefined;
         const restore = options.restore === "latest";
+        if (restore && !backup) {
+            throw new Error(`${name}: addPostgres({ restore: "latest" }) requires backup to be configured`);
+        }
         const externalClusterName = options.externalClusterName ?? "barman-backup";
         const image = options.image;
+        const instances = options.instances ?? 2;
+        const podAntiAffinityType =
+            options.podAntiAffinityType ?? (environment.isProduction ? "required" : "preferred");
 
         const resources = options.resources ?? POSTGRES_RESOURCES;
         const baseSpec: cnpg.ClusterSpec = {
             primaryUpdateStrategy: cnpg.ClusterSpecPrimaryUpdateStrategy.UNSUPERVISED,
             primaryUpdateMethod: cnpg.ClusterSpecPrimaryUpdateMethod.SWITCHOVER,
-            instances: options.instances ?? 2,
+            instances,
             imageName: image,
             imagePullPolicy: options.imagePullPolicy ?? "IfNotPresent",
+            ...(instances > 1 ? { affinity: { podAntiAffinityType } } : {}),
             monitoring: { enablePodMonitor: options.monitoring ?? true },
             postgresql: {
                 parameters: { wal_level: "replica", shared_buffers: "128MB", ...options.parameters },
@@ -598,6 +668,7 @@ export class KirDevApp {
             });
         }
 
+        const self = this;
         const pgRef = (key: string, envName: string) => new SecretKeyRef(secretName, key, envName);
         const handle: PostgresHandle = {
             clusterName,
@@ -612,8 +683,72 @@ export class KirDevApp {
             dotnetConnectionString() {
                 return interpolate`Host=${this.host}; Database=${this.database}; Username=${this.user}; Password=${this.password};`;
             },
+            publish(publishOptions: PostgresPublishOptions) {
+                self.publishPostgres(clusterName, publishOptions);
+                return this;
+            },
         };
         return handle;
+    }
+
+    private publishPostgres(clusterName: string, options: PostgresPublishOptions): void {
+        if (this.postgresPublished) throw new Error(`${this.name}: Postgres can only be published once`);
+        this.postgresPublished = true;
+
+        const serviceName = options.serviceName ?? clusterName;
+        const networkPolicyName = options.networkPolicyName ?? "allow-postgres";
+
+        // The host cluster applies a default-deny ingress NetworkPolicy to pods
+        // in `vc2`; allow external traffic to reach Postgres on TCP 5432.
+        new kube.KubeNetworkPolicy(this.scope, networkPolicyName, {
+            metadata: { name: networkPolicyName, labels: this.labels },
+            spec: {
+                podSelector: { matchLabels: { "cnpg.io/cluster": clusterName } },
+                policyTypes: ["Ingress"],
+                ingress: [
+                    {
+                        ports: [
+                            {
+                                protocol: "TCP",
+                                port: kube.IntOrString.fromNumber(5432),
+                            },
+                        ],
+                    },
+                ],
+            },
+        });
+
+        const annotations: Record<string, string> = {};
+        if (options.ip) annotations["lbipam.cilium.io/ips"] = options.ip;
+        if (options.sharingKey) annotations["lbipam.cilium.io/sharing-key"] = options.sharingKey;
+
+        // CloudNativePG only creates ClusterIP Services; expose the writable
+        // primary through a dedicated LoadBalancer Service.
+        new kube.KubeService(this.scope, `${serviceName}-public`, {
+            metadata: {
+                name: serviceName,
+                labels: {
+                    ...this.labels,
+                    "app.kubernetes.io/component": "database",
+                },
+                ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
+            },
+            spec: {
+                type: "LoadBalancer",
+                selector: {
+                    "cnpg.io/cluster": clusterName,
+                    "cnpg.io/instanceRole": "primary",
+                },
+                ports: [
+                    {
+                        name: "postgres",
+                        port: options.port,
+                        protocol: "TCP",
+                        targetPort: kube.IntOrString.fromNumber(5432),
+                    },
+                ],
+            },
+        });
     }
 
     // --- s3 (garage) ------------------------------------------------------
@@ -652,8 +787,8 @@ export class KirDevApp {
         });
 
         const volumes = [
-            { name: "data", size: backup?.dataSize ?? "5Gi" },
-            { name: "metadata", size: backup?.metadataSize ?? "1Gi" },
+            { name: "data", size: options.dataSize ?? backup?.dataSize ?? "5Gi" },
+            { name: "metadata", size: options.metadataSize ?? backup?.metadataSize ?? "1Gi" },
         ] as const;
 
         const volumeStorage = (volume: (typeof volumes)[number]) => ({
@@ -831,11 +966,34 @@ export class KirDevApp {
         const claims = volumes.map((volume) => ({ volume, claimName: this.emitVolume(base, volume, labels) }));
 
         // String env values go into the ConfigMap; refs become per-key env vars.
+        // Deduplicate component refs emitted by multiple `interpolate` values,
+        // and fail fast if two different definitions collide on the same name.
         const configData: Record<string, string> = {};
         const envVars: kube.EnvVar[] = [];
+        const seenEnv = new Map<string, string>();
         for (const [name, value] of Object.entries(options.env ?? {})) {
-            if (typeof value === "string") configData[name] = value;
-            else envVars.push(...value.apply(name, this));
+            if (typeof value === "string") {
+                if (seenEnv.has(name)) {
+                    throw new Error(`${base}: duplicate env var "${name}"`);
+                }
+                configData[name] = value;
+            } else {
+                for (const envVar of value.apply(name, this)) {
+                    if (envVar.name in configData) {
+                        throw new Error(`${base}: env var "${envVar.name}" collides with ConfigMap entry`);
+                    }
+                    const serialized = JSON.stringify(envVar);
+                    const prev = seenEnv.get(envVar.name);
+                    if (prev !== undefined) {
+                        if (prev !== serialized) {
+                            throw new Error(`${base}: conflicting definitions for env var "${envVar.name}"`);
+                        }
+                        continue;
+                    }
+                    seenEnv.set(envVar.name, serialized);
+                    envVars.push(envVar);
+                }
+            }
         }
 
         const envFrom: kube.EnvFromSource[] = [];
@@ -894,7 +1052,12 @@ export class KirDevApp {
                                     ? httpProbe(options.readinessProbe, defaultPortName)
                                     : undefined,
                                 livenessProbe: options.livenessProbe
-                                    ? tcpProbe(options.livenessProbe, defaultPortName)
+                                    ? options.livenessProbe.path !== undefined
+                                        ? httpProbe(options.livenessProbe, defaultPortName, {
+                                              periodSeconds: 20,
+                                              failureThreshold: 6,
+                                          })
+                                        : tcpProbe(options.livenessProbe, defaultPortName)
                                     : undefined,
                                 resources: kubeResources(options.resources ?? WORKLOAD_RESOURCES),
                                 volumeMounts:
@@ -953,7 +1116,7 @@ export class KirDevApp {
                                 path: path.path ?? "/",
                                 pathType: path.pathType ?? "Prefix",
                                 backend: {
-                                    service: { name: path.service ?? service, port: { name: path.port ?? "http" } },
+                                    service: { name: path.service ?? service, port: { name: path.port ?? portName } },
                                 },
                             })),
                         },
@@ -969,6 +1132,9 @@ export class KirDevApp {
      */
     build(): App {
         for (const workload of this.dockerBuilders) this.materializeDocker(workload);
+        if (this.appSecretsRequested) {
+            this.declareSecret(`${this.name}-secrets`, undefined, [...this.appSecretKeys]);
+        }
         for (const route of this.routes) this.addIngress(route.service, route.port, route.host, route.options);
         return this.app;
     }
@@ -1159,18 +1325,22 @@ function garageBackupName(volume: string, suffix: string): string {
 
 // The VolumeSnapshotClass for `memory-ssd` volumes (see `backup.md` §9).
 function snapshotClass(): string {
-    return environment.environment == "Production" ? "memory" : "csi-hostpath-snapclass";
+    return environment.isProduction ? "memory" : "csi-hostpath-snapclass";
 }
 
-function httpProbe(options: ProbeOptions, defaultPort: string): kube.Probe {
+function httpProbe(
+    options: ProbeOptions,
+    defaultPort: string,
+    defaults: { periodSeconds?: number; timeoutSeconds?: number; failureThreshold?: number } = {},
+): kube.Probe {
     return {
         httpGet: {
             path: options.path ?? "/",
             port: kube.IntOrString.fromString(options.port ?? defaultPort),
         },
-        periodSeconds: options.periodSeconds ?? 10,
-        timeoutSeconds: options.timeoutSeconds ?? 3,
-        failureThreshold: options.failureThreshold ?? 3,
+        periodSeconds: options.periodSeconds ?? defaults.periodSeconds ?? 10,
+        timeoutSeconds: options.timeoutSeconds ?? defaults.timeoutSeconds ?? 3,
+        failureThreshold: options.failureThreshold ?? defaults.failureThreshold ?? 3,
         initialDelaySeconds: options.initialDelaySeconds,
     };
 }
