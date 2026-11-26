@@ -8,7 +8,7 @@
 ## 1. Overview & Public URLs
 
 - **Repository:** [github.com/kir-dev/blog-v3](https://github.com/kir-dev/blog-v3)
-- **Production URL(s):** [Website](https://kir-dev.hu), [Payload CMS Admin](https://kir-dev.hu/admin)
+- **Production URL(s):** [Website (cutover staging)](https://new.kir-dev.hu), [Payload CMS Admin](https://new.kir-dev.hu/admin) (target domain: [kir-dev.hu](https://kir-dev.hu))
 - **Maintainer:** Kir-Dev (see [Simonyi Wiki](https://wiki.simonyi.bme.hu/kir-dev/projects/blog-v3))
 - **Personal & Private Info:** [Simonyi Wiki — blog-v3](https://wiki.simonyi.bme.hu/kir-dev/projects/blog-v3)
 
@@ -74,7 +74,7 @@
    yarn migrate:from-sanity
    ```
 
-4. **Create the first admin user** at `https://kir-dev.hu/admin`, verify all routes, and switch the `kir-dev.hu` DNS record to the cluster load balancer.
+4. **Create the first admin user** at `https://new.kir-dev.hu/admin`, verify all routes, and once ready to cut over from Vercel, switch `NEXT_PUBLIC_SITE_URL` and `.publish(...)` in `./app.ts` from `new.kir-dev.hu` to `kir-dev.hu` alongside the DNS switch.
 
 5. **Routine updates:**
    Pushing to `main` in `kir-dev/blog-v3` builds `ghcr.io/kir-dev/kir-dev.hu:v0.0.<run>` and runs `bun run renovate kir-dev.hu` to open a PR updating `./versions.ts`. Merging that PR lets ArgoCD roll out the new image.
