@@ -1,4 +1,4 @@
-# Kir-Dev Blog (`blog`)
+# Kir-Dev Website (`kir-dev.hu`)
 
 > **Maintenance Rule:** Update this documentation whenever infrastructure, configuration, dependencies, or deployment workflows change.  
 > **Last Updated:** 2026-11-26
@@ -20,56 +20,56 @@
 
 | Component | Technology / Service | Purpose |
 | :--- | :--- | :--- |
-| **Web & CMS** | Next.js 15 + PayloadCMS v3 | Public website (`kir-dev.hu`) and embedded admin UI (`/admin`) |
+| **Web & CMS** | Next.js 15 + PayloadCMS v3 (`ghcr.io/kir-dev/kir-dev.hu`) | Public website (`kir-dev.hu`) and embedded admin UI (`/admin`) |
 | **Database** | PostgreSQL 17.5 (CloudNativePG) | Primary CMS & application data store |
-| **Object Storage** | Garage S3 (`blog-media` bucket) | Uploaded media assets served via Payload S3 storage plugin |
-| **Off-site Backups** | Backblaze B2 (`kir-dev-blog-backups`) | Barman Cloud WAL/DB backups (`postgres/`) & VolSync/restic Garage backups (`restic/`) |
+| **Object Storage** | Garage S3 (`kir-dev-hu-media` bucket) | Uploaded media assets served via Payload S3 storage plugin |
+| **Off-site Backups** | Backblaze B2 (`kir-dev-hu-backups`) | Barman Cloud WAL/DB backups (`postgres/`) & VolSync/restic Garage backups (`restic/`) |
 | **Orchestration** | Kir-Dev Kubernetes & ArgoCD | Hosting & GitOps deployment |
 
 ### Hosting Environment
 
-- **Host / Environment:** Kir-Dev Kubernetes cluster (`vc2` inside `vc-kirdev`), namespace `blog` ([ArgoCD Application](https://argocd.kir-dev.hu/applications/blog))
+- **Host / Environment:** Kir-Dev Kubernetes cluster (`vc2` inside `vc-kirdev`), namespace `kir-dev-hu` ([ArgoCD Application](https://argocd.kir-dev.hu/applications/kir-dev.hu))
 - **Hosted By:** Kir-Dev
 
 ### Configuration Files
 
 - **Repository Configs:** [`./app.ts`](./app.ts), [`./versions.ts`](./versions.ts), [`./renovate.ts`](./renovate.ts)
 - **Application CI/CD:** [`kir-dev/blog-v3/.github/workflows/deploy.yml`](https://github.com/kir-dev/blog-v3/blob/main/.github/workflows/deploy.yml)
-- **Runtime Secrets:** Populated manually in namespace `blog`:
-  - `blog-secrets`: `PAYLOAD_SECRET` (required), `NEXT_PUBLIC_PLAUSIBLE_URL` (optional)
-  - `blog-backups-secrets`: `ACCESS_KEY_ID`, `ACCESS_SECRET_KEY` (Backblaze B2 credentials for Postgres backups)
-  - `blog-s3-backup-secrets-data` / `blog-s3-backup-secrets-metadata`: Backblaze B2 / restic credentials for Garage volume backups
+- **Runtime Secrets:** Populated manually in namespace `kir-dev-hu`:
+  - `kir-dev-hu-secrets`: `PAYLOAD_SECRET` (required), `NEXT_PUBLIC_PLAUSIBLE_URL` (optional)
+  - `kir-dev-hu-backups-secrets`: `ACCESS_KEY_ID`, `ACCESS_SECRET_KEY` (Backblaze B2 credentials for Postgres backups)
+  - `kir-dev-hu-s3-backup-secrets-data` / `kir-dev-hu-s3-backup-secrets-metadata`: Backblaze B2 / restic credentials for Garage volume backups
 
 ### Step-by-Step Deployment Instructions
 
-1. **Populate the manually managed secrets in the `blog` namespace after ArgoCD creates the namespace:**
+1. **Populate the manually managed secrets in the `kir-dev-hu` namespace after ArgoCD creates the namespace:**
    ```bash
-   kubectl -n blog patch secret blog-secrets --type merge -p "$(
+   kubectl -n kir-dev-hu patch secret kir-dev-hu-secrets --type merge -p "$(
      jq -n --arg secret "$(openssl rand -hex 32)" '{stringData: {PAYLOAD_SECRET: $secret}}'
    )"
    ```
-   Also populate `blog-backups-secrets`, `blog-s3-backup-secrets-data`, and `blog-s3-backup-secrets-metadata` with the `kir-dev-blog-backups` Backblaze B2 credentials (stored on the Simonyi Wiki).
+   Also populate `kir-dev-hu-backups-secrets`, `kir-dev-hu-s3-backup-secrets-data`, and `kir-dev-hu-s3-backup-secrets-metadata` with the `kir-dev-hu-backups` Backblaze B2 credentials (stored on the Simonyi Wiki).
 
 2. **Wait for the database, Garage S3, and app deployment to become ready:**
    ```bash
-   kubectl -n blog get cluster,garagecluster,deploy,pods
-   kubectl -n blog rollout status deployment/blog
+   kubectl -n kir-dev-hu get cluster,garagecluster,deploy,pods
+   kubectl -n kir-dev-hu rollout status deployment/kir-dev-hu
    ```
    Payload automatically applies PostgreSQL migrations on startup via `prodMigrations`.
 
 3. **One-time Sanity -> PayloadCMS data migration (initial cutover):**
    Port-forward the CNPG primary and Garage S3 service locally, then run the idempotent migration script from `kir-dev/blog-v3`:
    ```bash
-   kubectl -n blog port-forward svc/blog-db-rw 5432:5432 &
-   kubectl -n blog port-forward svc/blog-garage 3900:3900 &
+   kubectl -n kir-dev-hu port-forward svc/kir-dev-hu-db-rw 5432:5432 &
+   kubectl -n kir-dev-hu port-forward svc/kir-dev-hu-garage 3900:3900 &
 
-   DATABASE_URI="$(kubectl -n blog get secret blog-db-app -o jsonpath='{.data.uri}' | base64 -d | sed 's/blog-db-rw/127.0.0.1/')" \
-   PAYLOAD_SECRET="$(kubectl -n blog get secret blog-secrets -o jsonpath='{.data.PAYLOAD_SECRET}' | base64 -d)" \
+   DATABASE_URI="$(kubectl -n kir-dev-hu get secret kir-dev-hu-db-app -o jsonpath='{.data.uri}' | base64 -d | sed 's/kir-dev-hu-db-rw/127.0.0.1/')" \
+   PAYLOAD_SECRET="$(kubectl -n kir-dev-hu get secret kir-dev-hu-secrets -o jsonpath='{.data.PAYLOAD_SECRET}' | base64 -d)" \
    S3_ENDPOINT="http://127.0.0.1:3900" \
-   S3_BUCKET="blog-media" \
+   S3_BUCKET="kir-dev-hu-media" \
    S3_REGION="us-east-1" \
-   S3_ACCESS_KEY_ID="$(kubectl -n blog get secret blog-garage-s3 -o jsonpath='{.data.access-key-id}' | base64 -d)" \
-   S3_SECRET_ACCESS_KEY="$(kubectl -n blog get secret blog-garage-s3 -o jsonpath='{.data.secret-access-key}' | base64 -d)" \
+   S3_ACCESS_KEY_ID="$(kubectl -n kir-dev-hu get secret kir-dev-hu-garage-s3 -o jsonpath='{.data.access-key-id}' | base64 -d)" \
+   S3_SECRET_ACCESS_KEY="$(kubectl -n kir-dev-hu get secret kir-dev-hu-garage-s3 -o jsonpath='{.data.secret-access-key}' | base64 -d)" \
    SANITY_API_TOKEN="<sanity-read-token>" \
    yarn migrate:from-sanity
    ```
@@ -77,7 +77,7 @@
 4. **Create the first admin user** at `https://kir-dev.hu/admin`, verify all routes, and switch the `kir-dev.hu` DNS record to the cluster load balancer.
 
 5. **Routine updates:**
-   Pushing to `main` in `kir-dev/blog-v3` builds `ghcr.io/kir-dev/blog-v3:v0.0.<run>` and runs `bun run renovate blog` to open a PR updating `./versions.ts`. Merging that PR lets ArgoCD roll out the new image.
+   Pushing to `main` in `kir-dev/blog-v3` builds `ghcr.io/kir-dev/kir-dev.hu:v0.0.<run>` and runs `bun run renovate kir-dev.hu` to open a PR updating `./versions.ts`. Merging that PR lets ArgoCD roll out the new image.
 
 ---
 
@@ -95,6 +95,6 @@
 
 ### Order of Operations for Updates & Upgrades
 
-1. **Backups:** Verify recent CNPG (`kubectl -n blog get backup`) and VolSync (`kubectl -n blog get replicationsource`) backups succeeded before major upgrades.
+1. **Backups:** Verify recent CNPG (`kubectl -n kir-dev-hu get backup`) and VolSync (`kubectl -n kir-dev-hu get replicationsource`) backups succeeded before major upgrades.
 2. **Application & Schema Migrations:** Commit new Payload migrations (`yarn migrate:create`) in `kir-dev/blog-v3` before deploying the new image; Payload runs `prodMigrations` automatically during container startup before the `/admin` readiness probe passes.
 3. **Database Major Upgrades:** Follow CNPG major upgrade / dump-and-restore procedures in `../backup.md`.

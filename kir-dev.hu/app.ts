@@ -3,6 +3,9 @@
 // https://kir-dev.hu
 //
 // Next.js + Payload CMS (Postgres + Garage S3) application.
+// Kubernetes resources use `kir-dev-hu` because RFC 1035/1123 DNS labels
+// (Namespaces, Services, CNPG/Garage clusters) and Postgres identifiers
+// cannot contain dots.
 
 import * as environment from "../.dev/environment.ts";
 import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
@@ -16,11 +19,11 @@ const production = environment.environment == "Production";
 const b2 = createBackblaze({
     endpoint: "https://s3.eu-central-003.backblazeb2.com",
     region: "eu-central-003",
-    bucket: production ? "kir-dev-blog-backups" : "blog-test",
+    bucket: production ? "kir-dev-hu-backups" : "kir-dev-hu-test",
 });
 
-const app = createKirDevApp("blog", {
-    namespace: "blog",
+const app = createKirDevApp("kir-dev-hu", {
+    namespace: "kir-dev-hu",
     createNamespace: true,
 });
 
@@ -30,13 +33,13 @@ const db = app.addPostgres({
         ? {
               provider: b2.withPrefix("postgres/"),
               schedule: "0 20 3 * * *",
-              backblazeCredentialsSecret: "blog-backups-secrets",
+              backblazeCredentialsSecret: "kir-dev-hu-backups-secrets",
           }
         : false,
 });
 
 const s3 = app.addGarage({
-    buckets: ["blog-media"],
+    buckets: ["kir-dev-hu-media"],
     backup: production
         ? {
               provider: b2.withPrefix("restic/"),
@@ -57,7 +60,7 @@ const server = app.addDocker({
         S3_ACCESS_KEY_ID: s3.accessKeyId,
         S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
         DATABASE_URI: db.uri,
-        // Set manually in production (`blog-secrets`):
+        // Set manually in production (`kir-dev-hu-secrets`):
         //   PAYLOAD_SECRET:
         //   NEXT_PUBLIC_PLAUSIBLE_URL: (optional)
         PAYLOAD_SECRET: production ? manualSecret() : "local-development-secret",
