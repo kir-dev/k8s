@@ -1,4 +1,3 @@
 export const versions = {
-    // Updated automatically by Renovate once kir-dev/blog-v3 pushes its first v0.0.<run> image.
-    image: "ghcr.io/kir-dev/kir-dev.hu:v0.0.0",
+    image: "ghcr.io/kir-dev/kir-dev.hu:v0.0.1@sha256:bc3ece8d1143c7594ac6bfe2782ab7e518545e88b03b76d7f0d893cd50bece72",
 };
