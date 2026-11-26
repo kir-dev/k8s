@@ -1,0 +1,75 @@
+// https://github.com/kir-dev/blog-v3
+//
+// https://kir-dev.hu
+//
+// Next.js + Payload CMS (Postgres + Garage S3) application.
+
+import * as environment from "../.dev/environment.ts";
+import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
+import { versions } from "./versions.ts";
+
+const production = environment.environment == "Production";
+
+// Per-app Backblaze B2 bucket, shared by the CNPG/Barman DB backups
+// (`postgres/` prefix) and the VolSync/restic Garage-volume backups
+// (`restic/` prefix).
+const b2 = createBackblaze({
+    endpoint: "https://s3.eu-central-003.backblazeb2.com",
+    region: "eu-central-003",
+    bucket: production ? "kir-dev-blog-backups" : "blog-test",
+});
+
+const app = createKirDevApp("blog", {
+    namespace: "blog",
+    createNamespace: true,
+});
+
+const db = app.addPostgres({
+    image: "ghcr.io/cloudnative-pg/postgresql:17.5",
+    backup: production
+        ? {
+              provider: b2.withPrefix("postgres/"),
+              schedule: "0 20 3 * * *",
+              backblazeCredentialsSecret: "blog-backups-secrets",
+          }
+        : false,
+});
+
+const s3 = app.addGarage({
+    buckets: ["blog-media"],
+    backup: production
+        ? {
+              provider: b2.withPrefix("restic/"),
+              schedule: "40 3 * * *",
+          }
+        : false,
+});
+
+const server = app.addDocker({
+    image: versions.image,
+    env: {
+        NODE_ENV: "production",
+        NEXT_TELEMETRY_DISABLED: "1",
+        NEXT_PUBLIC_SITE_URL: "https://kir-dev.hu",
+        S3_ENDPOINT: s3.endpoint,
+        S3_BUCKET: s3.bucket,
+        S3_REGION: s3.region,
+        S3_ACCESS_KEY_ID: s3.accessKeyId,
+        S3_SECRET_ACCESS_KEY: s3.secretAccessKey,
+        DATABASE_URI: db.uri,
+        // Set manually in production (`blog-secrets`):
+        //   PAYLOAD_SECRET:
+        //   NEXT_PUBLIC_PLAUSIBLE_URL: (optional)
+        PAYLOAD_SECRET: production ? manualSecret() : "local-development-secret",
+        NEXT_PUBLIC_PLAUSIBLE_URL: manualSecret({ optional: true }),
+    },
+    // Hit a Payload route so Payload's initialization (including
+    // `prodMigrations`) completes before the pod reports Ready.
+    startupProbe: { path: "/admin", periodSeconds: 5, timeoutSeconds: 3, failureThreshold: 60 },
+    readinessProbe: { path: "/admin", periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3 },
+    livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
+});
+
+server.port(3000).publish("kir-dev.hu");
+
+export default app.build();
