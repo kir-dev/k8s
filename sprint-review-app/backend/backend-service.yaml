@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: kir-prod
+  name: sprint-review-backend
+  labels:
+    app: sprint-review-backend
+spec: 
+  selector:
+    app: sprint-review-backend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3001
+  type: ClusterIP
