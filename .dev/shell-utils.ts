@@ -3,10 +3,10 @@ import { createInterface } from "node:readline/promises";
 
 export type ShellCmd = ReturnType<typeof $>;
 
-export async function check(cmd: ShellCmd): Promise<void> {
+export async function check(cmd: ShellCmd, label?: string): Promise<void> {
     const result = await cmd.nothrow();
     if (result.exitCode !== 0) {
-        console.error("✗ command failed");
+        console.error(`✗ ${label ? `${label} ` : "command "}failed (exit ${result.exitCode})`);
         process.exit(1);
     }
 }

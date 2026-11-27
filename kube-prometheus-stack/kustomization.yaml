@@ -140,6 +140,9 @@ helmCharts:
             memory: 50Mi
             ephemeral-storage: 0
       grafana:
+        # Disable helm-test pod (unneeded with ArgoCD and lacks resource limits).
+        testFramework:
+          enabled: false
         # set a default password otherwise helm makes things non-reproducible by generating a random password
         adminPassword: admin
         resources:

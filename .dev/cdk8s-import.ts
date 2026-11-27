@@ -4,8 +4,8 @@
  */
 import { $ } from "bun";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 
@@ -77,7 +77,13 @@ const wall = ((Date.now() - started) / 1000).toFixed(1);
 console.error(`${shellOutputs.length - failed}/${shellOutputs.length} imports OK in ${wall}s`);
 if (failed) process.exit(1);
 
-// Cache
-mkdirSync(cachedImportsDir, { recursive: true });
-cpSync(importsDir, cachedImportsDir, { recursive: true });
-console.error(`cached -> ${cachedImportsDir}`);
+// Cache atomically so concurrent runs or crashes never leave a half-written cache entry
+const stagingDir = `${cachedImportsDir}.tmp-${process.pid}-${Date.now()}`;
+mkdirSync(dirname(cachedImportsDir), { recursive: true });
+cpSync(importsDir, stagingDir, { recursive: true });
+try {
+    renameSync(stagingDir, cachedImportsDir);
+    console.error(`cached -> ${cachedImportsDir}`);
+} catch {
+    rmSync(stagingDir, { recursive: true, force: true });
+}

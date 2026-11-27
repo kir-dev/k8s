@@ -4,11 +4,20 @@
         "cdk8s:import": "bun .dev/cdk8s-import.ts",
         "cdk8s:synth": "bun .dev/cdk8s-synth.ts",
         "local-cluster:up": "ARGOCD_APP_SOURCE_REPO_URL=git://git-server.argocd.svc.cluster.local:9418/k8s.git bun .dev/local-cluster.ts up",
+        "local-cluster:connect": "bun .dev/local-cluster.ts connect",
         "local-cluster:sync": "bun .dev/local-cluster.ts sync",
+        "local-cluster:status": "bun .dev/local-cluster.ts status",
+        "local-cluster:argocd": "bun .dev/local-cluster.ts argocd",
         "local-cluster:down": "bun .dev/local-cluster.ts down",
         "bootstrap-prod": "bun .dev/bootstrap-prod.ts",
         "renovate": "bun .dev/renovate.ts",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "test": "bun test",
+        "validate": "bun .dev/validate.ts",
+        "validate:all": "bun .dev/validate.ts --kustomize",
+        "format": "prettier --write \"**/*.ts\" \".dev/**/*.ts\"",
+        "format:check": "prettier --check \"**/*.ts\" \".dev/**/*.ts\"",
+        "check": "bun run typecheck && bun run format:check && bun run test && bun run validate"
     },
     "dependencies": {
         "cdk8s": "2.70.93",

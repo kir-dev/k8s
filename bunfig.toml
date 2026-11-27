@@ -3,3 +3,7 @@
 # Disable automatically installing dependencies when a .ts script does not have a node_modules.
 # The default made debugging an issue with symlinked .ts files *very* painful.
 auto = "disable"
+
+[test]
+# Tests live in `.dev/` (ignored by ArgoCD's ApplicationSet).
+root = ".dev"

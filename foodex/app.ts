@@ -9,29 +9,25 @@
 // it with a CNPG cluster; see the FoodEx repo's `migrateH2ToPostgres` Gradle
 // task for copying the existing rows over.
 
+import { isProduction } from "../.dev/environment.ts";
 import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
 
 // Per-app Backblaze B2 bucket for the CNPG/Barman database backups.
-const b2 = createBackblaze({
-    endpoint: "https://s3.eu-central-003.backblazeb2.com",
-    region: "eu-central-003",
-    bucket: "foodex-backups",
-});
+const b2 = createBackblaze("foodex-backups");
 
-const app = createKirDevApp("foodex", {
-    namespace: "foodex",
-    createNamespace: true,
-});
+const app = createKirDevApp("foodex");
 
 const db = app.addPostgres({
     image: "ghcr.io/cloudnative-pg/postgresql:17.5",
     instances: 1,
-    backup: {
-        provider: b2.withPrefix("postgres/"),
-        schedule: "0 24 3 * * *",
-        backblazeCredentialsSecret: "foodex-db-backup-secrets",
-    },
+    backup: isProduction
+        ? {
+              provider: b2.withPrefix("postgres/"),
+              schedule: "0 24 3 * * *",
+              backblazeCredentialsSecret: "foodex-db-backup-secrets",
+          }
+        : false,
 });
 
 // AuthSCH credentials are filled in by hand in the generated `foodex-secrets`
@@ -43,8 +39,8 @@ const backend = app.addDocker({
     image: versions.backend,
     imagePullPolicy: "Always",
     env: {
-        FOODEX_AUTHSCH_ID: manualSecret(),
-        FOODEX_AUTHSCH_KEY: manualSecret(),
+        FOODEX_AUTHSCH_ID: manualSecret({ optional: !isProduction }),
+        FOODEX_AUTHSCH_KEY: manualSecret({ optional: !isProduction }),
         FOODEX_BASEURL: "https://api.foodex.sch.bme.hu/",
         FOODEX_FRONTEND_URL: "https://foodex.sch.bme.hu",
         FOODEX_DATA_SOURCE: db.jdbcUri,

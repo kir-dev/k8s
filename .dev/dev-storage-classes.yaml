@@ -1,7 +1,7 @@
 # Apply these when running the cluster in a dev environment
 #
 # `memory-ssd` is Ceph RBD in production; here it is backed by
-# csi-driver-host-path so that Velero's CSI volume snapshots work locally
+# csi-driver-host-path so that VolSync's CSI volume snapshots work locally
 # (see `.dev/local-cluster.ts`). The others are plain local-path, which does
 # not support snapshots.
 apiVersion: storage.k8s.io/v1
