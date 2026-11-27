@@ -7,6 +7,7 @@
 // (Namespaces, Services, CNPG/Garage clusters) and Postgres identifiers
 // cannot contain dots.
 
+import * as traefik from "../imports/traefik.io.ts";
 import * as environment from "../.dev/environment.ts";
 import { createBackblaze, createKirDevApp, manualSecret } from "../.dev/kir-dev-app.ts";
 import { versions } from "./versions.ts";
@@ -73,6 +74,30 @@ const server = app.addDocker({
     livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
 });
 
-server.port(3000).publish("kir-dev.hu");
+const http = server.port(3000);
+http.publish("kir-dev.hu");
+
+// Permanent redirects from alias domains to `https://kir-dev.hu`.
+// Each alias has its own Ingress + TLS secret so cert-manager issues its
+// certificate independently of the primary `kir-dev.hu` certificate.
+new traefik.Middleware(app.scope, "redirect-to-apex", {
+    metadata: { name: "redirect-to-apex", labels: app.labels },
+    spec: {
+        redirectRegex: {
+            regex: "^https?://(?:www\\.kir-dev\\.hu|kir-dev\\.sch\\.bme\\.hu)(?::\\d+)?(.*)",
+            replacement: "https://kir-dev.hu${1}",
+            permanent: true,
+        },
+    },
+});
+
+http.publish("www.kir-dev.hu", {
+    name: "kir-dev-hu-www",
+    middlewares: ["kir-dev-hu-redirect-to-apex@kubernetescrd"],
+});
+http.publish("kir-dev.sch.bme.hu", {
+    name: "kir-dev-hu-sch-bme-hu",
+    middlewares: ["kir-dev-hu-redirect-to-apex@kubernetescrd"],
+});
 
 export default app.build();
