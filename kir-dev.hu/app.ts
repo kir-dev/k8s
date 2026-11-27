@@ -1,6 +1,6 @@
-// https://github.com/kir-dev/blog-v3
+// https://github.com/kir-dev/kir-dev.hu
 //
-// https://new.kir-dev.hu (target production domain: https://kir-dev.hu)
+// https://kir-dev.hu
 //
 // Next.js + Payload CMS (Postgres + Garage S3) application.
 // Kubernetes resources use `kir-dev-hu` because RFC 1035/1123 DNS labels
@@ -53,7 +53,7 @@ const server = app.addDocker({
     env: {
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
-        NEXT_PUBLIC_SITE_URL: "https://new.kir-dev.hu",
+        NEXT_PUBLIC_SITE_URL: "https://kir-dev.hu",
         S3_ENDPOINT: s3.endpoint,
         S3_BUCKET: s3.bucket,
         S3_REGION: s3.region,
@@ -73,7 +73,6 @@ const server = app.addDocker({
     livenessProbe: { periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 6 },
 });
 
-// Published at `new.kir-dev.hu` until DNS for `kir-dev.hu` cuts over from Vercel.
-server.port(3000).publish("new.kir-dev.hu");
+server.port(3000).publish("kir-dev.hu");
 
 export default app.build();
